@@ -2,6 +2,7 @@
 // A SWIG interface file to convert between Armadillo vectors/matrices and Numpy arrays.
 
 %header %{
+#include <array>
 #include <algorithm>
 #include <type_traits>
 #include <complex>
@@ -65,19 +66,50 @@
         static_assert( dims, "Cannot wrap Armadillo objects with more dims than Cube");
     };
 
+    // build arma object given memptr and dims
+    template<class T, typename std::enable_if<arma_info<T>::dims==1,bool>::type = true>
+    T arma_from_ptr( typename arma_info<T>::element_t* data, npy_intp* dims, bool copy){
+        return T(data,dims[0],copy);
+    }
+
+    template<class T, typename std::enable_if<arma_info<T>::dims==2,bool>::type = true>
+    T arma_from_ptr( typename arma_info<T>::element_t* data, npy_intp* dims, bool copy){
+        return T(data,dims[0],dims[1],copy);
+    }
+
+    template<class T, typename std::enable_if<arma_info<T>::dims==3,bool>::type = true>
+    T arma_from_ptr( typename arma_info<T>::element_t* data, npy_intp* dims, bool copy){
+        return T(data,dims[0],dims[1],dims[2],copy);
+    }
+
+    // get shape of arma object
+    template<class T, typename std::enable_if<arma_info<T>::dims==1,bool>::type = true>
+    auto arma_shape( const T& t) -> typename std::array<npy_intp,arma_info<T>::dims> {
+        return std::array<npy_intp,arma_info<T>::dims>{ (npy_intp)t.n_elem};
+    }
+
+    template<class T, typename std::enable_if<arma_info<T>::dims==2,bool>::type = true>
+    auto arma_shape( const T& t) -> typename std::array<npy_intp,arma_info<T>::dims> {
+        return std::array<npy_intp,arma_info<T>::dims>{ (npy_intp)t.n_rows, (npy_intp)t.n_cols};
+    }
+
+    template<class T, typename std::enable_if<arma_info<T>::dims==3,bool>::type = true>
+    auto arma_shape( const T& t) -> typename std::array<npy_intp,arma_info<T>::dims> {
+        return std::array<npy_intp,arma_info<T>::dims>{ (npy_intp)t.n_rows, (npy_intp)t.n_cols, (npy_intp)t.n_slices};
+    }
 }
 
-// Define methods for converting np.array <-> 1D arma
+// Define methods for converting between np.array and arma
 
-%fragment("arma_numpy_1d", "header", fragment="NumPy_Fragments", fragment="arma_numpy_utilities"){
+%fragment("arma_numpy", "header", fragment="NumPy_Fragments", fragment="arma_numpy_utilities"){
 
     /* Typecheck to ensure the input array is of the correct type and shape.
      * If a numpy array is not contiguous or is not column-ordered, a new array will be constructed for the conversion.
-     * Element type is checked rigorously, i.e. dtype=='float32' maps to Col<float>, dtype=='float64' maps to Col<double>.
-     * This may change in later updates.
+     * Numpy arrays may be cast to a different type, though only if it can be done so safely.
+     * Setting strict=true prevents casting, and imposes additional restrictions on internal memory layout.
      */
     template<class T>
-    int arma_numpy_typecheck(PyObject* input){
+    int arma_numpy_typecheck(PyObject* input, bool strict=false){
         constexpr int typecode = arma_info<T>::typecode;
         constexpr int dims = arma_info<T>::dims;
 
@@ -90,52 +122,73 @@
         int input_dims = array_numdims(array);
 
         // Check numpy array has correct type
+        // (or it can be cast to it without losing information)
         if( !PyArray_CanCastSafely( input_typecode, typecode) ) return false;
 
         // Check numpy array has correct ndims
         if( input_dims != dims ) return false;
 
+        // Apply stricter measures
+        // * no type casting
+        // * array must be column-ordered contiguous (e.g. Fortran style)
+        // * array must own its own data (e.g. not a view)
+        if( strict ){
+            // Require equivalent typecodes (e.g. okay if NPY_INT and NPY_LONGINT are the same)
+            if( !PyArray_EquivTypenums( input_typecode, typecode) ) return false;
+            // Require column ordered (or at least contiguous if the array is 1D)
+            if( !PyArray_IS_F_CONTIGUOUS(array) && !(input_dims == 1 && PyArray_IS_C_CONTIGUOUS(array)) ) return false;
+           // Must own data
+            if( !PyArray_CHKFLAGS(array,NPY_ARRAY_OWNDATA)) return false; 
+        }
+
         return true;
     }
     
-    /* Converts numpy array to arma::vec, or any variation on
-     * the theme (e.g. Col<int>, frowvec, etc).
+    /* Converts numpy array to arma container.
      * If the parameter 'copy' is set to false,
-     * the new arma::vec will make use of the same memory as
+     * the new container will make use of the same memory as
      * the numpy array. Be warned that this can cause havoc
      * if you change the elements of the array or resize it
      * from c++.
      */
-    template<class Vec>
-    Vec numpy_to_arma_1d(PyObject* input, bool copy=true){
+    template<class T>
+    T numpy_to_arma(PyObject* input, bool copy=true){
         // Determine internal type of Vec and corresponding numpy typecode
-        using element_t = typename arma_info<Vec>::element_t;
-        static constexpr int typecode = arma_info<Vec>::typecode;
+        using element_t = typename arma_info<T>::element_t;
+        static constexpr int typecode = arma_info<T>::typecode;
         // Convert generic PyObject to Numpy array
-        int is_new_object;
-        PyArrayObject* array = obj_to_array_fortran_allow_conversion( input, typecode, &is_new_object);
-        // Build new Vec using pointer to numpy array data
-        // Will copy unless
+        PyArrayObject* array = NULL;
+        if( copy ){
+            int is_new_object;
+            array = obj_to_array_fortran_allow_conversion( input, typecode, &is_new_object);
+        } else {
+            array = obj_to_array_no_conversion( input, typecode);
+        }
+        // Get dimensionality of numpy array and pointer to its raw data
+        npy_intp* dims = array_dimensions(array);
         element_t* data = reinterpret_cast<element_t*>(array_data(array));
-        arma::uword n_elem = static_cast<arma::uword>(array_dimensions(array)[0]);
-        Vec v = Vec(data,n_elem,copy);
-        return v;
+        T t = arma_from_ptr<T>(data,dims,copy);
+        return t;
     }
 
-    /* Converts arma::vec to numpy arrays
+    /* Converts arma container to numpy array
      * This will currently always copy, but this may change in future versions
      */
-    template<class Vec>
-    PyObject* arma_to_numpy_1d( const Vec& v){
+    template<class T>
+    PyObject* arma_to_numpy( const T& t, bool copy=true ){
         // Get element type and corresponding type code
-        using element_t = typename arma_info<Vec>::element_t;
-        static constexpr int typecode = arma_info<Vec>::typecode;
-        // Get size of vector, express it in a form numpy understands
-        arma::uword size = v.n_elem;
-        npy_intp dims[1] = {(npy_intp)size};
+        using element_t = typename arma_info<T>::element_t;
+        static constexpr int typecode = arma_info<T>::typecode;
+        static constexpr int dims = arma_info<T>::dims;
+        // Get shape of arma container
+        std::array<npy_intp,dims> shape = arma_shape(t);
         // Create new empty array, copy elements over
-        PyObject* array = PyArray_EMPTY( 1, dims, typecode, true);
-        std::copy( v.begin(), v.end(), reinterpret_cast<element_t*>(array_data(array)));
+        PyObject* array = PyArray_EMPTY( dims, shape.data(), typecode, /*'fortran' ordering*/ true);
+        if( copy || 1 ){
+            std::copy( t.begin(), t.end(), reinterpret_cast<element_t*>(array_data(array)));
+        } else {
+            // let numpy take control of memptr
+        }
         return array;
     }
 }
@@ -147,12 +200,12 @@
 %apply std::complex<float> { arma::cx_float};
 %apply std::complex<double> { arma::cx_double};
 
-// Create macro for arma::vec typemaps
-%define %gen_typemaps(Vec,prec)
+// Create macro for arma container typemaps
+%define %gen_typemaps(T,prec)
 
-    %typemap(in,  fragment="arma_numpy_1d") Vec, const Vec { $1 = numpy_to_arma_1d<Vec>($input); }
-    %typemap(out, fragment="arma_numpy_1d") Vec, const Vec { $result = arma_to_numpy_1d<Vec>($1); }
-    %typemap(typecheck, precedence=prec, fragment="arma_numpy_1d") Vec, const Vec { $1 = arma_numpy_typecheck<Vec>($input); }
+    %typemap(in,  fragment="arma_numpy") T, const T { $1 = numpy_to_arma<T>($input); }
+    %typemap(out, optimal="1", fragment="arma_numpy") T, const T { $result = arma_to_numpy<T>($1); }
+    %typemap(typecheck, precedence=prec, fragment="arma_numpy") T, const T { $1 = arma_numpy_typecheck<T>($input); }
 
 %enddef
 
@@ -188,11 +241,34 @@
 %apply arma::cx_frowvec { arma::Row<std::complex<float>>};
 %apply arma::cx_drowvec { arma::cx_rowvec, arma::Row<std::complex<double>>};
 
+// Generate typemaps for arma::Mat
 
-%typemap(out, fragment="NumPy_Fragments") arma::ivec {
-    arma::uword size = $1.n_elem;
-    npy_intp dims[1] = {(npy_intp)size};
-    PyObject* array = PyArray_EMPTY( 1, dims, NPY_INT64, true);
-    std::copy( $1.begin(), $1.end(), reinterpret_cast<arma::sword*>(array_data(array)));
-    return array;
-}
+%gen_typemaps(arma::imat,SWIG_TYPECHECK_INT64_ARRAY);
+%gen_typemaps(arma::umat,SWIG_TYPECHECK_UINT64_ARRAY);
+%gen_typemaps(arma::fmat,SWIG_TYPECHECK_FLOAT_ARRAY);
+%gen_typemaps(arma::dmat,SWIG_TYPECHECK_DOUBLE_ARRAY);
+%gen_typemaps(arma::cx_fmat,SWIG_TYPECHECK_COMPLEX_FLOAT_ARRAY);
+%gen_typemaps(arma::cx_dmat,SWIG_TYPECHECK_COMPLEX_DOUBLE_ARRAY);
+
+%apply arma::imat { arma::Mat<long long>, arma::Mat<arma::sword>};
+%apply arma::umat { arma::Mat<unsigned long long>, arma::Mat<arma::uword>};
+%apply arma::fmat { arma::Mat<float>};
+%apply arma::dmat { arma::mat, arma::Mat<double>};
+%apply arma::cx_fmat { arma::Mat<std::complex<float>>};
+%apply arma::cx_dmat { arma::cx_mat, arma::Mat<std::complex<double>>};
+
+// Generate typemaps for arma::Cube
+
+%gen_typemaps(arma::icube,SWIG_TYPECHECK_INT64_ARRAY);
+%gen_typemaps(arma::ucube,SWIG_TYPECHECK_UINT64_ARRAY);
+%gen_typemaps(arma::fcube,SWIG_TYPECHECK_FLOAT_ARRAY);
+%gen_typemaps(arma::dcube,SWIG_TYPECHECK_DOUBLE_ARRAY);
+%gen_typemaps(arma::cx_fcube,SWIG_TYPECHECK_COMPLEX_FLOAT_ARRAY);
+%gen_typemaps(arma::cx_dcube,SWIG_TYPECHECK_COMPLEX_DOUBLE_ARRAY);
+
+%apply arma::icube { arma::Cube<long long>, arma::Cube<arma::sword>};
+%apply arma::ucube { arma::Cube<unsigned long long>, arma::Cube<arma::uword>};
+%apply arma::fcube { arma::Cube<float>};
+%apply arma::dcube { arma::cube, arma::Cube<double>};
+%apply arma::cx_fcube { arma::Cube<std::complex<float>>};
+%apply arma::cx_dcube { arma::cx_cube, arma::Cube<std::complex<double>>};

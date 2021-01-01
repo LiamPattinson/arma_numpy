@@ -23,3 +23,30 @@ arma::ivec reverse_vec( arma::ivec v){
 arma::uvec reverse_vec( arma::uvec v){
     return arma::reverse(v);
 }
+
+double sum_mat( arma::mat m){
+    return arma::sum(arma::sum(m));    
+}
+
+arma::sword sum_mat( arma::imat m){
+    return arma::sum(arma::sum(m));    
+}
+
+arma::mat transpose_mat( arma::mat m){
+    return m.t();
+}
+
+double sum_cube( arma::cube c){
+    return arma::accu(c);    
+}
+arma::sword sum_cube( arma::icube c){
+    return arma::accu(c);
+}
+
+arma::cube do_nothing( arma::cube c){
+    return c;
+}
+
+arma::mat get_second_slice( arma::cube c){
+    return c.slice(1);
+}
