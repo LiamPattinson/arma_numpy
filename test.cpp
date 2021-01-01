@@ -19,3 +19,7 @@ arma::vec reverse_vec( arma::vec v){
 arma::ivec reverse_vec( arma::ivec v){
     return arma::reverse(v);
 }
+
+arma::uvec reverse_vec( arma::uvec v){
+    return arma::reverse(v);
+}

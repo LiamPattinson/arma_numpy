@@ -8,3 +8,5 @@ arma::sword sum_vec(arma::ivec v); // handle input of ivec and output of an arma
 arma::vec get_vec( int size ); // given something easily recognised, output vec
 arma::vec reverse_vec( arma::vec v); // given a vec, return a vec
 arma::icolvec reverse_vec( arma::ivec v); // given an ivec, return a typedef over ivec
+arma::uvec reverse_vec( arma::uvec v); // given a uvec, return a uvec. Tests if numpy casting works properly.
+

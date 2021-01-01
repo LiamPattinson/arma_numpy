@@ -17,12 +17,12 @@
 %}
 
 // Define some new typechecking precedence values
-// UINT64_ARRAY is INT64_ARRAY+1
+// UINT64_ARRAY is INT64_ARRAY-1
 // COMPLEX_FLOAT_ARRAY is DOUBLE_ARRAY+1
 // COMPLEX_DOUBLE_ARRAY is DOUBLE_ARRAY+2
 // Hopefully the swig devs won't invalidate this anytime soon!
 
-%define SWIG_TYPECHECK_UINT64_ARRAY         1056 %enddef
+%define SWIG_TYPECHECK_UINT64_ARRAY         1054 %enddef
 %define SWIG_TYPECHECK_COMPLEX_FLOAT_ARRAY  1091 %enddef
 %define SWIG_TYPECHECK_COMPLEX_DOUBLE_ARRAY 1092 %enddef
 
