@@ -24,6 +24,22 @@ arma::uvec reverse_vec( arma::uvec v){
     return arma::reverse(v);
 }
 
+double sum_vec_by_ref( const arma::vec& v){
+    return arma::sum(v);
+}
+
+double sum_vec_by_ptr( const arma::vec* v){
+    return arma::sum(*v);
+}
+
+void set_to_zero_by_ref( arma::vec& v){
+    v.zeros();
+}
+
+void set_to_zero_by_ptr( arma::vec* v){
+    v->zeros();
+}
+
 double sum_mat( arma::mat m){
     return arma::sum(arma::sum(m));    
 }

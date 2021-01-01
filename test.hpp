@@ -12,6 +12,12 @@ arma::vec reverse_vec( arma::vec v); // given a vec, return a vec
 arma::icolvec reverse_vec( arma::ivec v); // given an ivec, return a typedef over ivec
 arma::uvec reverse_vec( arma::uvec v); // given a uvec, return a uvec. Tests if numpy casting works properly.
 
+double sum_vec_by_ref( const arma::vec& v);
+double sum_vec_by_ptr( const arma::vec* v);
+void set_to_zero_by_ref( arma::vec& v);
+void set_to_zero_by_ptr( arma::vec* v);
+
+
 // 2D
 
 double sum_mat( arma::mat m);

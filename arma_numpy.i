@@ -172,10 +172,10 @@
     }
 
     /* Converts arma container to numpy array
-     * This will currently always copy, but this may change in future versions
+     * Returns by value, and always creates a new numpy array.
      */
     template<class T>
-    PyObject* arma_to_numpy( const T& t, bool copy=true ){
+    PyObject* arma_to_numpy( const T& t ){
         // Get element type and corresponding type code
         using element_t = typename arma_info<T>::element_t;
         static constexpr int typecode = arma_info<T>::typecode;
@@ -184,11 +184,7 @@
         std::array<npy_intp,dims> shape = arma_shape(t);
         // Create new empty array, copy elements over
         PyObject* array = PyArray_EMPTY( dims, shape.data(), typecode, /*'fortran' ordering*/ true);
-        if( copy || 1 ){
-            std::copy( t.begin(), t.end(), reinterpret_cast<element_t*>(array_data(array)));
-        } else {
-            // let numpy take control of memptr
-        }
+        std::copy( t.begin(), t.end(), reinterpret_cast<element_t*>(array_data(array)));
         return array;
     }
 }
@@ -203,9 +199,13 @@
 // Create macro for arma container typemaps
 %define %gen_typemaps(T,prec)
 
-    %typemap(in,  fragment="arma_numpy") T, const T { $1 = numpy_to_arma<T>($input); }
-    %typemap(out, optimal="1", fragment="arma_numpy") T, const T { $result = arma_to_numpy<T>($1); }
-    %typemap(typecheck, precedence=prec, fragment="arma_numpy") T, const T { $1 = arma_numpy_typecheck<T>($input); }
+    %typemap(in,  fragment="arma_numpy") T, const T  { $1 = numpy_to_arma<T>($input); }
+    %typemap(in,  fragment="arma_numpy") const T& (T temp) { temp = numpy_to_arma<T>($input); $1 = temp; }
+    %typemap(in,  fragment="arma_numpy") const T* (T temp) { temp = numpy_to_arma<T>($input); $1 = &temp;  }
+    %typemap(in,  fragment="arma_numpy") T& (T temp) { temp = numpy_to_arma<T>($input); $1 = temp; }
+    %typemap(in,  fragment="arma_numpy") T* (T temp) { temp = numpy_to_arma<T>($input); $1 = &temp;  }
+    %typemap(out, optimal="1", fragment="arma_numpy") T { $result = arma_to_numpy<T>($1); }
+    %typemap(typecheck, precedence=prec, fragment="arma_numpy") T, const T, T*, const T*, T&, const T& { $1 = arma_numpy_typecheck<T>($input); }
 
 %enddef
 
