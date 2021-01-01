@@ -90,7 +90,7 @@
         int input_dims = array_numdims(array);
 
         // Check numpy array has correct type
-        if( !PyArray_EquivTypenums( input_typecode, typecode) ) return false;
+        if( !PyArray_CanCastSafely( input_typecode, typecode) ) return false;
 
         // Check numpy array has correct ndims
         if( input_dims != dims ) return false;
