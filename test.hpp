@@ -23,6 +23,8 @@ void set_to_zero_by_ptr( arma::vec* v);
 double sum_mat( arma::mat m);
 arma::sword sum_mat( arma::imat m);
 arma::mat transpose_mat( arma::mat m);
+void set_to_zero_by_ref( arma::mat& m);
+void set_to_zero_by_ptr( arma::mat* m);
 
 // 3D
 

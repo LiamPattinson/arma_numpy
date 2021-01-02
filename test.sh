@@ -1,6 +1,6 @@
 #!/bin/bash
 
-ERR_FLAGS="-Wall -Wextra"
+ERR_FLAGS="-Wall -Wextra -DARMA_NUMPY_DEBUG"
 CXX_FLAGS="${ERR_FLAGS} -std=c++11 -fPIC -O2"
 SWIG_FLAGS="-python -py3 -c++ -cppext cpp ${ERR_FLAGS}"
 

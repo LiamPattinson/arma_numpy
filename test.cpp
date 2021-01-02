@@ -52,6 +52,14 @@ arma::mat transpose_mat( arma::mat m){
     return m.t();
 }
 
+void set_to_zero_by_ref( arma::mat& m){
+    m.zeros();
+}
+
+void set_to_zero_by_ptr( arma::mat* m){
+    m->zeros();
+}
+
 double sum_cube( arma::cube c){
     return arma::accu(c);    
 }
