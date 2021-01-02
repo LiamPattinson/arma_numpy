@@ -198,15 +198,30 @@
 
 // Create macro for arma container typemaps
 %define %gen_typemaps(T,prec)
-
     %typemap(in,  fragment="arma_numpy") T, const T  { $1 = numpy_to_arma<T>($input); }
-    %typemap(in,  fragment="arma_numpy") const T& (T temp) { temp = numpy_to_arma<T>($input); $1 = temp; }
-    %typemap(in,  fragment="arma_numpy") const T* (T temp) { temp = numpy_to_arma<T>($input); $1 = &temp;  }
-    %typemap(in,  fragment="arma_numpy") T& (T temp) { temp = numpy_to_arma<T>($input); $1 = temp; }
-    %typemap(in,  fragment="arma_numpy") T* (T temp) { temp = numpy_to_arma<T>($input); $1 = &temp;  }
+    %typemap(in,  fragment="arma_numpy") T& (T temp), T* (T temp) { temp = numpy_to_arma<T>($input,false); $1 = &temp; }
+    %typemap(in,  fragment="arma_numpy") const T& (T temp), const T* (T temp) { temp = numpy_to_arma<T>($input); $1 = &temp; }
     %typemap(out, optimal="1", fragment="arma_numpy") T { $result = arma_to_numpy<T>($1); }
-    %typemap(typecheck, precedence=prec, fragment="arma_numpy") T, const T, T*, const T*, T&, const T& { $1 = arma_numpy_typecheck<T>($input); }
+    %typemap(typecheck, precedence=prec, fragment="arma_numpy") T, const T, T *, const T *, T &, const T & { $1 = arma_numpy_typecheck<T>($input); }
+%enddef
 
+// Some preprocessor magic...
+#define GET_NTH_ARG( _1, _2, _3, _4, N, ...) N
+#define APPLY_SYMBOLS_1(_pre,_post,_a) (_pre _a _post)
+#define APPLY_SYMBOLS_2(_pre,_post,_a,...) (_pre _a _post) , APPLY_SYMBOLS_1(_pre,_post,__VA_ARGS__)
+#define APPLY_SYMBOLS_3(_pre,_post,_a,...) (_pre _a _post) , APPLY_SYMBOLS_2(_pre,_post,__VA_ARGS__)
+#define APPLY_SYMBOLS_4(_pre,_post,_a,...) (_pre _a _post) , APPLY_SYMBOLS_3(_pre,_post,__VA_ARGS__)
+#define APPLY_SYMBOLS(_pre,_post,...) \
+    GET_NTH_ARG(__VA_ARGS__,APPLY_SYMBOLS_4,APPLY_SYMBOLS_3,APPLY_SYMBOLS_2,APPLY_SYMBOLS_1)(_pre,_post,##__VA_ARGS__)
+
+// Create macro to apply typemaps to all variations on the type T (e.g. vec, colvec*, const dvec&, dcolvec&, const Col<double>)
+%define %apply_typemaps(T,...)
+    %apply T  { APPLY_SYMBOLS(,,__VA_ARGS__) };
+    %apply T& { APPLY_SYMBOLS(,&,__VA_ARGS__) };
+    %apply T* { APPLY_SYMBOLS(,*,__VA_ARGS__) };
+    %apply const T  { APPLY_SYMBOLS(const,,__VA_ARGS__) };
+    %apply const T& { APPLY_SYMBOLS(const,&,__VA_ARGS__) };
+    %apply const T* { APPLY_SYMBOLS(const,*,__VA_ARGS__) };
 %enddef
 
 // Generate typemaps for arma::Col
@@ -218,12 +233,12 @@
 %gen_typemaps(arma::cx_fvec,SWIG_TYPECHECK_COMPLEX_FLOAT_ARRAY);
 %gen_typemaps(arma::cx_dvec,SWIG_TYPECHECK_COMPLEX_DOUBLE_ARRAY);
 
-%apply arma::ivec { arma::icolvec, arma::Col<long long>, arma::Col<arma::sword>};
-%apply arma::uvec { arma::ucolvec, arma::Col<unsigned long long>, arma::Col<arma::uword>};
-%apply arma::fvec { arma::fcolvec, arma::Col<float>};
-%apply arma::dvec { arma::dcolvec, arma::colvec, arma::vec, arma::Col<double>};
-%apply arma::cx_fvec { arma::cx_fcolvec, arma::Col<std::complex<float>>};
-%apply arma::cx_dvec { arma::cx_dcolvec, arma::cx_vec, arma::cx_colvec, arma::Col<std::complex<double>>};
+%apply_typemaps( arma::ivec, arma::icolvec, arma::Col<long long>, arma::Col<arma::sword>);
+%apply_typemaps( arma::uvec, arma::ucolvec, arma::Col<unsigned long long>, arma::Col<arma::uword>);
+%apply_typemaps( arma::fvec, arma::fcolvec, arma::Col<float>);
+%apply_typemaps( arma::dvec, arma::dcolvec, arma::colvec, arma::vec, arma::Col<double>);
+%apply_typemaps( arma::cx_fvec, arma::cx_fcolvec, arma::Col<std::complex<float>>);
+%apply_typemaps( arma::cx_dvec, arma::cx_dcolvec, arma::cx_vec, arma::cx_colvec, arma::Col<std::complex<double>>);
 
 // Generate typemaps for arma::Row
 
@@ -234,12 +249,12 @@
 %gen_typemaps(arma::cx_frowvec,SWIG_TYPECHECK_COMPLEX_FLOAT_ARRAY);
 %gen_typemaps(arma::cx_drowvec,SWIG_TYPECHECK_COMPLEX_DOUBLE_ARRAY);
 
-%apply arma::irowvec { arma::Row<long long>, arma::Row<arma::sword>};
-%apply arma::urowvec { arma::Row<unsigned long long>, arma::Row<arma::uword>};
-%apply arma::frowvec { arma::Row<float>};
-%apply arma::drowvec { arma::rowvec, arma::Row<double>};
-%apply arma::cx_frowvec { arma::Row<std::complex<float>>};
-%apply arma::cx_drowvec { arma::cx_rowvec, arma::Row<std::complex<double>>};
+%apply_typemaps( arma::irowvec, arma::Row<long long>, arma::Row<arma::sword>);
+%apply_typemaps( arma::urowvec, arma::Row<unsigned long long>, arma::Row<arma::uword>);
+%apply_typemaps( arma::frowvec, arma::Row<float>);
+%apply_typemaps( arma::drowvec, arma::rowvec, arma::Row<double>);
+%apply_typemaps( arma::cx_frowvec, arma::Row<std::complex<float>>);
+%apply_typemaps( arma::cx_drowvec, arma::cx_rowvec, arma::Row<std::complex<double>>);
 
 // Generate typemaps for arma::Mat
 
@@ -250,12 +265,12 @@
 %gen_typemaps(arma::cx_fmat,SWIG_TYPECHECK_COMPLEX_FLOAT_ARRAY);
 %gen_typemaps(arma::cx_dmat,SWIG_TYPECHECK_COMPLEX_DOUBLE_ARRAY);
 
-%apply arma::imat { arma::Mat<long long>, arma::Mat<arma::sword>};
-%apply arma::umat { arma::Mat<unsigned long long>, arma::Mat<arma::uword>};
-%apply arma::fmat { arma::Mat<float>};
-%apply arma::dmat { arma::mat, arma::Mat<double>};
-%apply arma::cx_fmat { arma::Mat<std::complex<float>>};
-%apply arma::cx_dmat { arma::cx_mat, arma::Mat<std::complex<double>>};
+%apply_typemaps( arma::imat, arma::Mat<long long>, arma::Mat<arma::sword>);
+%apply_typemaps( arma::umat, arma::Mat<unsigned long long>, arma::Mat<arma::uword>);
+%apply_typemaps( arma::fmat, arma::Mat<float>);
+%apply_typemaps( arma::dmat, arma::mat, arma::Mat<double>);
+%apply_typemaps( arma::cx_fmat, arma::Mat<std::complex<float>>);
+%apply_typemaps( arma::cx_dmat, arma::cx_mat, arma::Mat<std::complex<double>>);
 
 // Generate typemaps for arma::Cube
 
@@ -266,9 +281,9 @@
 %gen_typemaps(arma::cx_fcube,SWIG_TYPECHECK_COMPLEX_FLOAT_ARRAY);
 %gen_typemaps(arma::cx_dcube,SWIG_TYPECHECK_COMPLEX_DOUBLE_ARRAY);
 
-%apply arma::icube { arma::Cube<long long>, arma::Cube<arma::sword>};
-%apply arma::ucube { arma::Cube<unsigned long long>, arma::Cube<arma::uword>};
-%apply arma::fcube { arma::Cube<float>};
-%apply arma::dcube { arma::cube, arma::Cube<double>};
-%apply arma::cx_fcube { arma::Cube<std::complex<float>>};
-%apply arma::cx_dcube { arma::cx_cube, arma::Cube<std::complex<double>>};
+%apply_typemaps( arma::icube, arma::Cube<long long>, arma::Cube<arma::sword>);
+%apply_typemaps( arma::ucube, arma::Cube<unsigned long long>, arma::Cube<arma::uword>);
+%apply_typemaps( arma::fcube, arma::Cube<float>);
+%apply_typemaps( arma::dcube, arma::cube, arma::Cube<double>);
+%apply_typemaps( arma::cx_fcube, arma::Cube<std::complex<float>>);
+%apply_typemaps( arma::cx_dcube, arma::cx_cube, arma::Cube<std::complex<double>>);
