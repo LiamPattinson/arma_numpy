@@ -133,10 +133,8 @@
         if( strict ){
             // Require equivalent typecodes (e.g. okay if NPY_INT and NPY_LONGINT are the same)
             if( !PyArray_EquivTypenums( input_typecode, typecode) ) return false;
-            // Require column ordered (or at least contiguous if the array is 1D)
-            if( !PyArray_IS_F_CONTIGUOUS(array) && !(input_dims == 1 && PyArray_IS_C_CONTIGUOUS(array)) ) return false;
            // Must own data
-            if( !PyArray_CHKFLAGS(array,NPY_ARRAY_OWNDATA)) return false; 
+            if( !PyArray_CHKFLAGS(array,(NPY_ARRAY_F_CONTIGUOUS|NPY_ARRAY_OWNDATA|NPY_ARRAY_ALIGNED|NPY_ARRAY_WRITEABLE))) return false; 
         }
 
         return true;
@@ -207,18 +205,39 @@
 %define %gen_typemaps(T,prec)
     // In by value
     %typemap(in,  fragment="arma_numpy") T, const T  {
+        // Perform extra typecheck to avoid any attempted casting at runtime
+        bool typecheck = arma_numpy_typecheck<T>($input,false);
+        if( !typecheck ){
+            PyErr_Format( PyExc_TypeError,"ArmaNumpyError: Tried to cast to %s in function %s", #T, "$symname");
+            return NULL;
+        }
         $1 = numpy_to_arma<T>($input);
     }
 
     // In by reference
     %typemap(in,  fragment="arma_numpy") T& (T temp), T* (T temp) {
-        // TODO check strict typechecking, raise error if not met
+        // Perform extra typecheck to avoid any dodgy casting at runtime. Also check that
+        bool typecheck = arma_numpy_typecheck<T>($input,true);
+        if( !typecheck ){
+            PyErr_Format( PyExc_TypeError,"ArmaNumpyError: Tried to cast to %s in function %s.\n%s", 
+                #T,
+                "$symname",
+                "If you expect that this should work, make sure your np.array is compatible by calling np.asfortranarray(X)."
+            );
+            return NULL;
+        }
         temp = numpy_to_arma<T>($input);
         $1 = &temp; 
     }
     
     // In by const reference
     %typemap(in,  fragment="arma_numpy") const T& (T temp), const T* (T temp) {
+        // Perform extra typecheck to avoid any dodgy casting at runtime
+        bool typecheck = arma_numpy_typecheck<T>($input,false);
+        if( !typecheck ){
+            PyErr_Format( PyExc_TypeError,"ArmaNumpyError: Tried to cast to %s in function %s", #T, "$symname");
+            return NULL;
+        }
         temp = numpy_to_arma<T>($input);
         $1 = &temp;
     }
@@ -230,12 +249,13 @@
     
     // Typecheck by value
     %typemap(typecheck, precedence=prec, fragment="arma_numpy") T, const T {
-        $1 = arma_numpy_typecheck<T>($input,false);
+        $1 = arma_numpy_typecheck<T>($input,/*strict*/false);
     }
     
     // Typecheck by reference
     %typemap(typecheck, precedence=prec, fragment="arma_numpy") T*, const T*, T&, const T& {
-        $1 = arma_numpy_typecheck<T>($input,/*strict*/ true);
+        // non-strict typechecking for now, a conversion error may be caught later
+        $1 = arma_numpy_typecheck<T>($input,/*strict*/ false);
     }
 
     // Typecheck by const reference
@@ -245,13 +265,14 @@
 %enddef
 
 // Some preprocessor magic...
-#define GET_NTH_ARG( _1, _2, _3, _4, N, ...) N
+#define GET_NTH_ARG( _1, _2, _3, _4, _5, N, ...) N
 #define APPLY_SYMBOLS_1(_pre,_post,_a) (_pre _a _post)
 #define APPLY_SYMBOLS_2(_pre,_post,_a,...) (_pre _a _post) , APPLY_SYMBOLS_1(_pre,_post,__VA_ARGS__)
 #define APPLY_SYMBOLS_3(_pre,_post,_a,...) (_pre _a _post) , APPLY_SYMBOLS_2(_pre,_post,__VA_ARGS__)
 #define APPLY_SYMBOLS_4(_pre,_post,_a,...) (_pre _a _post) , APPLY_SYMBOLS_3(_pre,_post,__VA_ARGS__)
+#define APPLY_SYMBOLS_5(_pre,_post,_a,...) (_pre _a _post) , APPLY_SYMBOLS_4(_pre,_post,__VA_ARGS__)
 #define APPLY_SYMBOLS(_pre,_post,...) \
-    GET_NTH_ARG(__VA_ARGS__,APPLY_SYMBOLS_4,APPLY_SYMBOLS_3,APPLY_SYMBOLS_2,APPLY_SYMBOLS_1)(_pre,_post,##__VA_ARGS__)
+    GET_NTH_ARG(__VA_ARGS__,APPLY_SYMBOLS_5,APPLY_SYMBOLS_4,APPLY_SYMBOLS_3,APPLY_SYMBOLS_2,APPLY_SYMBOLS_1)(_pre,_post,##__VA_ARGS__)
 
 // Create macro to apply typemaps to all variations on the type T (e.g. vec, colvec*, const dvec&, dcolvec&, const Col<double>)
 %define %apply_typemaps(T,...)
@@ -309,8 +330,8 @@
 %apply_typemaps( arma::uvec, arma::ucolvec, arma::Col<unsigned long long>, arma::Col<arma::uword>);
 %apply_typemaps( arma::fvec, arma::fcolvec, arma::Col<float>);
 %apply_typemaps( arma::dvec, arma::dcolvec, arma::colvec, arma::vec, arma::Col<double>);
-%apply_typemaps( arma::cx_fvec, arma::cx_fcolvec, arma::Col<std::complex<float>>);
-%apply_typemaps( arma::cx_dvec, arma::cx_dcolvec, arma::cx_vec, arma::cx_colvec, arma::Col<std::complex<double>>);
+%apply_typemaps( arma::cx_fvec, arma::cx_fcolvec, arma::Col<std::complex<float>>, arma::Col<arma::cx_float>);
+%apply_typemaps( arma::cx_dvec, arma::cx_dcolvec, arma::cx_vec, arma::cx_colvec, arma::Col<std::complex<double>>, arma::Col<arma::cx_double>);
 
 // Generate typemaps for arma::Row
 
@@ -327,8 +348,8 @@
 %apply_typemaps( arma::urowvec, arma::Row<unsigned long long>, arma::Row<arma::uword>);
 %apply_typemaps( arma::frowvec, arma::Row<float>);
 %apply_typemaps( arma::drowvec, arma::rowvec, arma::Row<double>);
-%apply_typemaps( arma::cx_frowvec, arma::Row<std::complex<float>>);
-%apply_typemaps( arma::cx_drowvec, arma::cx_rowvec, arma::Row<std::complex<double>>);
+%apply_typemaps( arma::cx_frowvec, arma::Row<std::complex<float>>, arma::Row<arma::cx_float>);
+%apply_typemaps( arma::cx_drowvec, arma::cx_rowvec, arma::Row<std::complex<double>>, arma::Row<arma::cx_double>);
 
 // Generate typemaps for arma::Mat
 
@@ -345,8 +366,8 @@
 %apply_typemaps( arma::umat, arma::Mat<unsigned long long>, arma::Mat<arma::uword>);
 %apply_typemaps( arma::fmat, arma::Mat<float>);
 %apply_typemaps( arma::dmat, arma::mat, arma::Mat<double>);
-%apply_typemaps( arma::cx_fmat, arma::Mat<std::complex<float>>);
-%apply_typemaps( arma::cx_dmat, arma::cx_mat, arma::Mat<std::complex<double>>);
+%apply_typemaps( arma::cx_fmat, arma::Mat<std::complex<float>>, arma::Mat<arma::cx_float>);
+%apply_typemaps( arma::cx_dmat, arma::cx_mat, arma::Mat<std::complex<double>>, arma::Mat<arma::cx_double>);
 
 // Generate typemaps for arma::Cube
 
@@ -363,5 +384,5 @@
 %apply_typemaps( arma::ucube, arma::Cube<unsigned long long>, arma::Cube<arma::uword>);
 %apply_typemaps( arma::fcube, arma::Cube<float>);
 %apply_typemaps( arma::dcube, arma::cube, arma::Cube<double>);
-%apply_typemaps( arma::cx_fcube, arma::Cube<std::complex<float>>);
-%apply_typemaps( arma::cx_dcube, arma::cx_cube, arma::Cube<std::complex<double>>);
+%apply_typemaps( arma::cx_fcube, arma::Cube<std::complex<float>>, arma::Cube<arma::cx_float>);
+%apply_typemaps( arma::cx_dcube, arma::cx_cube, arma::Cube<std::complex<double>>, arma::Cube<arma::cx_double>);
