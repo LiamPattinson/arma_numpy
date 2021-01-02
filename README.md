@@ -95,7 +95,7 @@ if we call:
 The matrix `A` is stored in memory as the following 1D array:
 
 ```
-A_data -> { 0, 1, 2, 3, 4, 5, 6, 7, 8 }
+A_numpy_data -> { 0, 1, 2, 3, 4, 5, 6, 7, 8 }
 ```
 
 Numpy may also try to be clever and store data in a non-contiguous manner, or
@@ -105,7 +105,7 @@ contiguously and in *column-major order* (Fortran-style), meaning the underlying
 representation is instead:
 
 ```
-arma_linspace_data -> { 0, 3, 6, 1, 4, 7, 2, 5, 8 }
+A_arma_data -> { 0, 3, 6, 1, 4, 7, 2, 5, 8 }
 ```
 
 (Horrifying, I know.)
