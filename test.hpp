@@ -17,6 +17,12 @@ double sum_vec_by_ptr( const arma::vec* v);
 void set_to_zero_by_ref( arma::vec& v);
 void set_to_zero_by_ptr( arma::vec* v);
 
+void print_memptr_by_val( arma::vec v);
+void print_memptr_by_ref( arma::vec& v);
+void print_memptr_by_ptr( arma::vec* v);
+void print_memptr_by_const_ref( const arma::vec& v);
+void print_memptr_by_const_ptr( const arma::vec* v);
+
 
 // 2D
 
@@ -25,6 +31,14 @@ arma::sword sum_mat( arma::imat m);
 arma::mat transpose_mat( arma::mat m);
 void set_to_zero_by_ref( arma::mat& m);
 void set_to_zero_by_ptr( arma::mat* m);
+double sum_mat_by_const_ref( const arma::mat& m);
+double sum_mat_by_const_ptr( const arma::mat* m);
+
+void print_memptr_by_val( arma::mat m);
+void print_memptr_by_ref( arma::mat& m);
+void print_memptr_by_ptr( arma::mat* m);
+void print_memptr_by_const_ref( const arma::mat& m);
+void print_memptr_by_const_ptr( const arma::mat* m);
 
 // 3D
 
@@ -32,3 +46,9 @@ double sum_cube( arma::cube c);
 arma::sword sum_cube( arma::icube c);
 arma::cube do_nothing( arma::cube c);
 arma::mat get_second_slice( arma::cube c);
+
+void print_memptr_by_val( arma::cube c);
+void print_memptr_by_ref( arma::cube& c);
+void print_memptr_by_ptr( arma::cube* c);
+void print_memptr_by_const_ref( const arma::cube& c);
+void print_memptr_by_const_ptr( const arma::cube* c);

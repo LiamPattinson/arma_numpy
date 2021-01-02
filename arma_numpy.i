@@ -9,7 +9,7 @@
 #include <armadillo>
 #include <numpy/arrayobject.h>
 #ifdef ARMA_NUMPY_DEBUG
-#warning "Arma_numpy debug mode activated"
+#warning "arma_numpy debug mode activated"
 #include <cstdio>
 #endif
 %}
@@ -67,18 +67,18 @@
 
     // build arma object given memptr and dims
     template<class T, typename std::enable_if<arma_info<T>::dims==1,bool>::type = true>
-    T arma_from_ptr( typename arma_info<T>::element_t* data, npy_intp* dims, bool copy){
-        return T(data,dims[0],copy);
+    T arma_from_ptr( typename arma_info<T>::element_t* data, npy_intp* dims){
+        return T(data,dims[0],false);
     }
 
     template<class T, typename std::enable_if<arma_info<T>::dims==2,bool>::type = true>
-    T arma_from_ptr( typename arma_info<T>::element_t* data, npy_intp* dims, bool copy){
-        return T(data,dims[0],dims[1],copy);
+    T arma_from_ptr( typename arma_info<T>::element_t* data, npy_intp* dims){
+        return T(data,dims[0],dims[1],false);
     }
 
     template<class T, typename std::enable_if<arma_info<T>::dims==3,bool>::type = true>
-    T arma_from_ptr( typename arma_info<T>::element_t* data, npy_intp* dims, bool copy){
-        return T(data,dims[0],dims[1],dims[2],copy);
+    T arma_from_ptr( typename arma_info<T>::element_t* data, npy_intp* dims){
+        return T(data,dims[0],dims[1],dims[2],false);
     }
 
     // get shape of arma object
@@ -151,35 +151,27 @@
      * be converted to a new dtype, and may be made copied to make a Fortran contiguous (column-ordered) version.
      */
     template<class T>
-    T numpy_to_arma(PyObject* input, bool copy=true){
+    T numpy_to_arma(PyObject* input){
         // Determine internal type of Vec and corresponding numpy typecode
         using element_t = typename arma_info<T>::element_t;
         static constexpr int typecode = arma_info<T>::typecode;
-        // Convert generic PyObject to Numpy array
+        // Convert generic PyObject to Numpy array.
+        // If we need to convert it to a Fortran-contiguous copy or change the type, do so.
+        // Note that this will not happen if an object passes strict typechecking.
         PyArrayObject* array = NULL;
-        if( copy ){
-            int is_new_object;
-            array = obj_to_array_fortran_allow_conversion( input, typecode, &is_new_object);
-            #ifdef ARMA_NUMPY_DEBUG
-            if(is_new_object){
-                printf("ArmaNumpyDebug: Numpy object was converted and copied.\n");
-            } else {
-                printf("ArmaNumpyDebug: Numpy object was not converted, but was copied.\n");
-            }
-            #endif
-        } else {
-            array = obj_to_array_no_conversion( input, typecode);
-            #ifdef ARMA_NUMPY_DEBUG
-            printf("ArmaNumpyDebug: Numpy object was not converted or copied.\n");
-            #endif
-        }
+        int is_new_object;
+        array = obj_to_array_fortran_allow_conversion( input, typecode, &is_new_object);
+        #ifdef ARMA_NUMPY_DEBUG
+        if(is_new_object) printf("ArmaNumpyDebug: Converted new F-contiguous Numpy array.\n");
+        #endif 
         // Get dimensionality of numpy array and pointer to its raw data
         npy_intp* dims = array_dimensions(array);
         element_t* data = reinterpret_cast<element_t*>(array_data(array));
+        // Build arma object directly from Numpy
         #ifdef ARMA_NUMPY_DEBUG
         printf("ArmaNumpyDebug: Building Arma object from Numpy data ptr: %p\n",data);
         #endif 
-        T t = arma_from_ptr<T>(data,dims,copy);
+        T t = arma_from_ptr<T>(data,dims);
         #ifdef ARMA_NUMPY_DEBUG
         printf("ArmaNumpyDebug: Built Arma object with memptr: %p\n",t.memptr());
         #endif 
@@ -220,7 +212,8 @@
 
     // In by reference
     %typemap(in,  fragment="arma_numpy") T& (T temp), T* (T temp) {
-        temp = numpy_to_arma<T>($input,false);
+        // TODO check strict typechecking, raise error if not met
+        temp = numpy_to_arma<T>($input);
         $1 = &temp; 
     }
     
@@ -230,19 +223,24 @@
         $1 = &temp;
     }
 
-    // Out by value
+    // Out by value (out by reference/const reference not available at this time)
     %typemap(out, optimal="1", fragment="arma_numpy") T {
         $result = arma_to_numpy<T>($1);
     }
     
     // Typecheck by value
     %typemap(typecheck, precedence=prec, fragment="arma_numpy") T, const T {
-        $1 = arma_numpy_typecheck<T>($input);
+        $1 = arma_numpy_typecheck<T>($input,false);
     }
     
     // Typecheck by reference
-    %typemap(typecheck, precedence=prec, fragment="arma_numpy") T *, const T *, T &, const T & {
+    %typemap(typecheck, precedence=prec, fragment="arma_numpy") T*, const T*, T&, const T& {
         $1 = arma_numpy_typecheck<T>($input,/*strict*/ true);
+    }
+
+    // Typecheck by const reference
+    %typemap(typecheck, precedence=prec, fragment="arma_numpy") const T*, const T& {
+        $1 = arma_numpy_typecheck<T>($input,/*strict*/ false);
     }
 %enddef
 
