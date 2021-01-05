@@ -1,4 +1,4 @@
-#include "test.hpp"
+#include "arma_numpy_test.hpp"
 #include <cstdio>
 
 double sum_vec( arma::vec v){

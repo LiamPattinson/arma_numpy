@@ -1,5 +1,5 @@
-// test.hpp
-// Simple tests to get the project going
+// arma_numpy_test.hpp
+// A collection of simple C++ functions to test arma_numpy.i
 
 #include <armadillo>
 
