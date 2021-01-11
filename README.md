@@ -51,13 +51,10 @@ or reference is unlikely to require any copying. If it is necessary to convert
 a Numpy array to a suitable format before passing to a C++ function, this
 will be performed quietly behind-the-scenes.
 
-Some cases exist where it is not generally possible to safely convert a
-Numpy array; these are the topics of the next two sections.
+### Effecient Pass-by-Reference
 
-### Multidimensional Arrays and Pass-by-Reference
-
-When passing by non-const reference or pointer, we may edit Numpy arrays in-place via
-Armadillo types. For example, take the following function:
+When passing by non-const reference or pointer, we may edit Numpy arrays in-place.
+For example, take the following function:
 
 ```
 void set_to_zeros( arma::imat& m){
@@ -65,7 +62,7 @@ void set_to_zeros( arma::imat& m){
 }
 ```
 
-To call this from Python, we first need to
+To call this from Python without creating copies behind-the-scenes, we first need to
 call the function `np.asfortranarray` on any Numpy arrays we wish to pass in:
 
 ```
@@ -78,31 +75,33 @@ True
 False
 ```
 
-Failing to include the explicit conversion to a Fortran array causes an error,
-as SWIG is unable to find a matching typemap. The code would also fail if
-the Numpy array's dtype did not match the element type of `arma::imat`.
-
-These constraints are to ensure that Numpy arrays passed by non-const reference have
-exactly the same underlying representation in memory as their corresponding
-Armadillo types. By default, Numpy stores
-multidimensional arrays in *row-major order* (C-style), meaning that that
+The code would still work if we omitted the explicit conversion to a Fortran array,
+but it would run significantly slower.
+This is because Numpy stores
+multidimensional arrays in *row-major order* (C-style) by default, so
 if we call:
 
 ```
 >>> A = np.linspace(0,8,9).reshape((3,3))
 ```
 
-The matrix `A` is stored in memory as the following 1D array:
+The matrix `A` is stored in memory as the following 1D contiguous array:
 
 ```
 A_numpy_data -> { 0, 1, 2, 3, 4, 5, 6, 7, 8 }
 ```
 
-Numpy may also try to be clever and store data in a non-contiguous manner, or
-reference data belonging to a different Numpy array. All of these cases are
-incompatible with Armadillo, as it prefers to store multidimensional arrays
-contiguously and in *column-major order* (Fortran-style), meaning the underlying
-representation is instead:
+Numpy may also store non-contiguous data in order to avoid copying data when
+performing operations such as slicing or transposing.
+In contrast, Armadillo may only store multidimensional arrays
+contiguously and in *column-major order* (Fortran-style), meaning that if we build 
+the following array:
+
+```
+arma::imat A = arma::linspace(0,8,9).reshape(3,3);
+```
+
+It will be stored in memory as: 
 
 ```
 A_arma_data -> { 0, 3, 6, 1, 4, 7, 2, 5, 8 }
@@ -110,26 +109,13 @@ A_arma_data -> { 0, 3, 6, 1, 4, 7, 2, 5, 8 }
 
 (Horrifying, I know.)
 
-As we expect Armadillo containers passed by non-const reference may be edited in-place,
-we require any corresponding Numpy arrays to have the same underlying representation.
-This is not required of any Armadillo containers passed by value or const reference/pointer,
-for which `arma_numpy.i` will instead quietly convert any incompatible inputs.
-
-Note that conversions require copying the elements of the input array, so if you're
-worried about speed, try to ensure any input arrays are Fortran ordered beforehand.
-If a function still won't accept a Numpy array, check the array's flags:
-
-```
->>> x.flags
-    ...
-    F_CONTIGUOUS : TRUE
-    OWNDATA : TRUE
-    WRITEABLE : TRUE
-    ALIGNED : TRUE
-    ...
-```
-
-If any of the above flags aren't `TRUE`, try making a copy using `np.asfortranarray`.
+As a result, `arma_numpy` must convert Numpy arrays to column-major order before
+passing them to Armadillo, and this requires the creation of temporary copies.
+To maintain the illusion of pass-by-reference, the contents of these copies
+are moved back into the input array after C++ functions have been called. This takes
+time, so it is recommended to ensure Numpy arrays are already in Fortran/column-major
+order before passing them to Armadillo functions. Note that 1D Numpy arrays are already
+in Fortran order, so no conversion is necessary.
 
 ### Return by Reference
 

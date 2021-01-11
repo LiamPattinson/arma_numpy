@@ -203,7 +203,9 @@
 
 // Create macro for arma container typemaps
 %define %gen_typemaps(T,prec)
+
     // In by value
+    // Always copies and quietly converts if it needs to.
     %typemap(in,  fragment="arma_numpy") T, const T  {
         // Perform extra typecheck to avoid any attempted casting at runtime
         bool typecheck = arma_numpy_typecheck<T>($input,false);
@@ -215,23 +217,9 @@
     }
 
     // In by reference
-    %typemap(in,  fragment="arma_numpy") T& (T temp), T* (T temp) {
-        // Perform extra typecheck to avoid any dodgy casting at runtime. Also check that
-        bool typecheck = arma_numpy_typecheck<T>($input,true);
-        if( !typecheck ){
-            PyErr_Format( PyExc_TypeError,"ArmaNumpyError: Tried to cast to %s in function %s.\n%s", 
-                #T,
-                "$symname",
-                "If you expect that this should work, make sure your np.array is compatible by calling np.asfortranarray(X)."
-            );
-            return NULL;
-        }
-        temp = numpy_to_arma<T>($input);
-        $1 = &temp; 
-    }
-    
-    // In by const reference
-    %typemap(in,  fragment="arma_numpy") const T& (T temp), const T* (T temp) {
+    // Only copies if the type required by arma doesn't match the type provided by numpy, or if the input isn't Fortran ordered.
+    // See argout for handling in case copying was performed.
+    %typemap(in,  fragment="arma_numpy") T& (T temp), T* (T temp), const T& (T temp), const T* (T temp) {
         // Perform extra typecheck to avoid any dodgy casting at runtime
         bool typecheck = arma_numpy_typecheck<T>($input,false);
         if( !typecheck ){
@@ -240,6 +228,32 @@
         }
         temp = numpy_to_arma<T>($input);
         $1 = &temp;
+    }
+
+    // Argout by reference:
+    // If strict typechecking isn't passed, then the input is converted before passing to arma.
+    // To maintain the illusion of pass-by-reference, convert the new arma object back to a numpy object, and copy into the original.
+    %typemap(argout, fragment="arma_numpy") T&, T* {
+        // If strict typechecking isn't passed, then a copy was made when converting to arma.
+        // Move the results back into $input if this is the case.
+        bool strict_typecheck = arma_numpy_typecheck<T>($input,true);
+        if( !strict_typecheck ){
+            // convert arma back to numpy
+            PyObject* np = arma_to_numpy<T>(*$1);
+            // move back into original array
+            int err = PyArray_MoveInto((PyArrayObject*)$input,(PyArrayObject*)np);
+            if(err==-1){
+                PyErr_Format( PyExc_TypeError, "ArmaNumpyError: Conversion error when passing by reference in function %s", "$symname");
+                return NULL;
+            }
+        }
+    }
+
+    // Argout by const reference:
+    // Do nothing! If strict typechecking isn't passed, then the input is converted before passing to arma.
+    // However, something passed by const ref/ptr can't be modified by the function, so there's no need to convert back again.
+    %typemap(argout, fragment="arma_numpy") const T&, const T* {
+        // Do nothing!
     }
 
     // Out by value (out by reference/const reference not available at this time)

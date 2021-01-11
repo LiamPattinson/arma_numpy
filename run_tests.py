@@ -81,33 +81,24 @@ class TestClass:
     def test_set_vec_to_zero(self):
         """
         Expect numpy arrays to be modified inplace.
-        Expect also that only exactly the right types will work, and otherwise a TypeError is raised.
-        As 1D numpy arrays are both C-contiguous and F-contiguous, expect this to work on 64 bit floats only.
+        Should work for all inputs (though some will run considerably slower as copies must be made for compatibility)
         """
         self.init()
         set_to_zero_by_ptr(self.f64_1)
         set_to_zero_by_ref(self.ff64_1)
+        set_to_zero_by_ref(self.i32_1)
+        set_to_zero_by_ref(self.fi32_1)
+        set_to_zero_by_ref(self.i64_1)
+        set_to_zero_by_ref(self.fi64_1)
+        set_to_zero_by_ref(self.f32_1)
         assert np.all(self.f64_1 == 0.)
         assert np.all(self.ff64_1 == 0.)
-        with pytest.raises(TypeError):
-            set_to_zero_by_ref(self.i32_1)
-        with pytest.raises(TypeError):
-            set_to_zero_by_ref(self.fi32_1)
-        with pytest.raises(TypeError):
-            set_to_zero_by_ref(self.i64_1)
-        with pytest.raises(TypeError):
-            set_to_zero_by_ref(self.fi64_1)
-        with pytest.raises(TypeError):
-            set_to_zero_by_ref(self.f32_1)
-        with pytest.raises(TypeError):
-            set_to_zero_by_ref(self.ff32_1)
-        # Ensure they actually weren't modified
-        assert np.max(self.i32_1) != 0
-        assert np.max(self.fi32_1) != 0
-        assert np.max(self.i64_1) != 0
-        assert np.max(self.fi64_1) != 0
-        assert np.max(self.f32_1) != 0.
-        assert np.max(self.ff32_1) != 0.
+        assert np.all(self.i32_1 == 0)
+        assert np.all(self.fi32_1 == 0)
+        assert np.all(self.i64_1 == 0)
+        assert np.all(self.fi64_1 == 0)
+        assert np.all(self.f32_1 == 0.)
+        assert np.all(self.ff32_1 == 0.)
 
     def test_sum_mat(self):
         """
@@ -146,7 +137,7 @@ class TestClass:
 
     def test_set_mat_to_zero(self):
         """
-        Expect this to work only for mats of the type float64 and F-contiguous
+        Expect this to work for all.
         """
         self.init()
         set_to_zero_by_ref(self.ff64_2)
@@ -156,16 +147,27 @@ class TestClass:
         assert np.all(self.ff64_2)
         set_to_zero_by_ptr(self.ff64_2)
         assert np.all(self.ff64_2 == 0)
-        # Show all other matrices fail
-        with pytest.raises(TypeError):
-            set_to_zero_by_ref(self.i64_2)
-        with pytest.raises(TypeError):
-            set_to_zero_by_ref(self.fi64_2)
-        with pytest.raises(TypeError):
-            set_to_zero_by_ref(self.f64_2)
-        assert np.max(self.i64_2) != 0
-        assert np.max(self.fi64_2) != 0
-        assert np.max(self.f64_2) != 0
+        # Repeat for other matrix types
+        # These ones will make internal copies, so will run slower.
+        set_to_zero_by_ref(self.i64_2)
+        set_to_zero_by_ref(self.fi64_2)
+        set_to_zero_by_ref(self.f64_2)
+        assert np.all(self.i64_2 == 0)
+        assert np.all(self.fi64_2 == 0)
+        assert np.all(self.f64_2 == 0)
+        self.i64_2 += 1
+        self.fi64_2 += 1
+        self.f64_2 += 1
+        assert np.all(self.i64_2)
+        assert np.all(self.fi64_2)
+        assert np.all(self.f64_2)
+        set_to_zero_by_ptr(self.i64_2)
+        set_to_zero_by_ptr(self.fi64_2)
+        set_to_zero_by_ptr(self.f64_2)
+        assert np.all(self.i64_2 == 0)
+        assert np.all(self.fi64_2 == 0)
+        assert np.all(self.f64_2 == 0)
+
 
     def test_sum_mat_by_const_ref(self):
         """
@@ -174,6 +176,8 @@ class TestClass:
         As no int version is defined, the returned value should always be float.
         """
         self.init()
+        print( np.sum(self.i64_2))
+        print( sum_mat_by_const_ref(self.i64_2))
         assert sum_mat_by_const_ref(self.i64_2) == np.sum(self.i64_2)
         assert sum_mat_by_const_ref(self.fi64_2) == np.sum(self.fi64_2)
         assert sum_mat_by_const_ref(self.f64_2) == np.sum(self.f64_2)
