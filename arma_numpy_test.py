@@ -62,61 +62,61 @@ class _SwigNonDynamicMeta(type):
 
 
 
-def sum_vec(*args) -> "arma::sword":
+def sum_vec(*args):
     return _arma_numpy_test.sum_vec(*args)
 
-def get_vec(size: "int") -> "arma::vec":
+def get_vec(size):
     return _arma_numpy_test.get_vec(size)
 
-def reverse_vec(*args) -> "arma::uvec":
+def reverse_vec(*args):
     return _arma_numpy_test.reverse_vec(*args)
 
-def sum_vec_by_ref(v: "arma::vec const &") -> "double":
+def sum_vec_by_ref(v):
     return _arma_numpy_test.sum_vec_by_ref(v)
 
-def sum_vec_by_ptr(v: "arma::vec const *") -> "double":
+def sum_vec_by_ptr(v):
     return _arma_numpy_test.sum_vec_by_ptr(v)
 
-def sum_mat(*args) -> "arma::sword":
+def sum_mat(*args):
     return _arma_numpy_test.sum_mat(*args)
 
-def transpose_mat(m: "arma::mat") -> "arma::mat":
+def transpose_mat(m):
     return _arma_numpy_test.transpose_mat(m)
 
-def set_to_zero_by_ref(*args) -> "void":
+def set_to_zero_by_ref(*args):
     return _arma_numpy_test.set_to_zero_by_ref(*args)
 
-def set_to_zero_by_ptr(*args) -> "void":
+def set_to_zero_by_ptr(*args):
     return _arma_numpy_test.set_to_zero_by_ptr(*args)
 
-def sum_mat_by_const_ref(m: "arma::mat const &") -> "double":
+def sum_mat_by_const_ref(m):
     return _arma_numpy_test.sum_mat_by_const_ref(m)
 
-def sum_mat_by_const_ptr(m: "arma::mat const *") -> "double":
+def sum_mat_by_const_ptr(m):
     return _arma_numpy_test.sum_mat_by_const_ptr(m)
 
-def sum_cube(*args) -> "arma::sword":
+def sum_cube(*args):
     return _arma_numpy_test.sum_cube(*args)
 
-def do_nothing(c: "arma::cube") -> "arma::cube":
+def do_nothing(c):
     return _arma_numpy_test.do_nothing(c)
 
-def get_second_slice(c: "arma::cube") -> "arma::mat":
+def get_second_slice(c):
     return _arma_numpy_test.get_second_slice(c)
 
-def print_memptr_by_val(*args) -> "void":
+def print_memptr_by_val(*args):
     return _arma_numpy_test.print_memptr_by_val(*args)
 
-def print_memptr_by_ref(*args) -> "void":
+def print_memptr_by_ref(*args):
     return _arma_numpy_test.print_memptr_by_ref(*args)
 
-def print_memptr_by_ptr(*args) -> "void":
+def print_memptr_by_ptr(*args):
     return _arma_numpy_test.print_memptr_by_ptr(*args)
 
-def print_memptr_by_const_ref(*args) -> "void":
+def print_memptr_by_const_ref(*args):
     return _arma_numpy_test.print_memptr_by_const_ref(*args)
 
-def print_memptr_by_const_ptr(*args) -> "void":
+def print_memptr_by_const_ptr(*args):
     return _arma_numpy_test.print_memptr_by_const_ptr(*args)
 
 

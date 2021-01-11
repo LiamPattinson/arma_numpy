@@ -1,4 +1,3 @@
-- Proper build for testing
 - Allow upcasting vec->matrix->cube, and also downcasting if dimensions agree (i.e. (1,3) matrix, or (1,4,1) cube, etc.)
 - Return by const reference/pointer returns by value.
 - Return by non-const pointer illegal, but non-const reference should have Numpy use the data but not steal a reference.
