@@ -247,3 +247,22 @@ class TestClass:
         assert get_second_slice(self.fi64_3).flags['F_CONTIGUOUS'] == True
         assert get_second_slice(self.f64_3).flags['F_CONTIGUOUS'] == True
         assert get_second_slice(self.ff64_3).flags['F_CONTIGUOUS'] == True
+
+    def test_upcast_dims(self):
+        """
+        It should be possible to cast vectors to matrices and matrices to cubes.
+        """
+        self.init()
+        # Test sum
+        assert sum_mat(self.i64_1) == np.sum(self.i64_1)
+        assert sum_cube(self.f64_1) == np.sum(self.f64_1)
+        assert sum_cube(self.fi64_2) == np.sum(self.fi64_2)
+        # Test transpose
+        assert self.i64_1.shape == (3,)
+        assert transpose_mat(self.i64_1).shape == (1,3)
+        assert np.all(transpose_mat(self.i64_1) == self.i64_1.T)
+        # Test that downcasting is not possible
+        with pytest.raises(TypeError):
+            transpose_mat(self.i64_3)
+        with pytest.raises(TypeError):
+            sum_vec(self.ff64_2)

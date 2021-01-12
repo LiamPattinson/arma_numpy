@@ -1,4 +1,3 @@
-- Allow upcasting vec->matrix->cube, and also downcasting if dimensions agree (i.e. (1,3) matrix, or (1,4,1) cube, etc.)
 - Test wrapping of a class (implement a simple 1D grid of 3-vecs?)
 - Return by pointer illegal, but reference should have Numpy use the data but not steal a reference.
     - This is needed to allow things like:

@@ -7,6 +7,7 @@
 #include <type_traits>
 #include <complex>
 #include <armadillo>
+#include <stdexcept>
 #include <numpy/arrayobject.h>
 #ifdef ARMA_NUMPY_DEBUG
 #warning "arma_numpy debug mode activated"
@@ -51,7 +52,8 @@
     template<> struct from_typecode<NPY_COMPLEX128> {  using type = arma::cx_double; };
 
     // info from arma type
-    template<class T> struct arma_info {
+    template<class T>
+    struct arma_info {
         // element type
         using element_t = typename T::elem_type;
         // corresponding typecode
@@ -65,20 +67,38 @@
         static_assert( dims, "Cannot wrap Armadillo objects with more dims than Cube");
     };
 
+    // arma_numpy exception
+    class ArmaNumpyException : public std::runtime_error {
+        using std::runtime_error::runtime_error;
+    };
+
+
     // build arma object given memptr and dims
     template<class T, typename std::enable_if<arma_info<T>::dims==1,bool>::type = true>
-    T arma_from_ptr( typename arma_info<T>::element_t* data, npy_intp* dims){
-        return T(data,dims[0],false);
+    T arma_from_ptr( typename arma_info<T>::element_t* data, npy_intp* dims, int ndims) {
+        switch(ndims){
+            case 1: return T(data,dims[0],false);
+            default: throw ArmaNumpyException("Can't cast Numpy array of len(shape) > 1 to an Armadillo vector");
+        }
     }
 
     template<class T, typename std::enable_if<arma_info<T>::dims==2,bool>::type = true>
-    T arma_from_ptr( typename arma_info<T>::element_t* data, npy_intp* dims){
-        return T(data,dims[0],dims[1],false);
+    T arma_from_ptr( typename arma_info<T>::element_t* data, npy_intp* dims, int ndims) {
+        switch(ndims){
+            case 1: return T(data,dims[0],1,false);
+            case 2: return T(data,dims[0],dims[1],false);
+            default: throw ArmaNumpyException("Can't cast Numpy array of len(shape) > 2 to an Armadillo matrix");
+        }
     }
 
     template<class T, typename std::enable_if<arma_info<T>::dims==3,bool>::type = true>
-    T arma_from_ptr( typename arma_info<T>::element_t* data, npy_intp* dims){
-        return T(data,dims[0],dims[1],dims[2],false);
+    T arma_from_ptr( typename arma_info<T>::element_t* data, npy_intp* dims, int ndims) {
+        switch(ndims){
+            case 1: return T(data,dims[0],1,1,false);
+            case 2: return T(data,dims[0],dims[1],1,false);
+            case 3: return T(data,dims[0],dims[1],dims[2],false);
+            default: throw ArmaNumpyException("Can't cast Numpy array of len(shape) > 3 to an Armadillo cube");
+        }
     }
 
     // get shape of arma object
@@ -102,42 +122,69 @@
 
 %fragment("arma_numpy", "header", fragment="NumPy_Fragments", fragment="arma_numpy_utilities"){
 
-    /* Typecheck to ensure the input array is of the correct type and shape.
+    /* Cast check
+     * Tests if the input type can be safely cast to the required type.
+     * If 'strict', the input type must exactly match the required type.
+     */
+    template<class T>
+    int arma_numpy_castcheck( PyObject* input, bool strict=false){
+        constexpr int typecode = arma_info<T>::typecode;
+
+        PyArrayObject* array = (PyArrayObject*)input;
+        int input_typecode = array_type(array);
+        
+        if( strict ){
+            return PyArray_EquivTypenums( input_typecode, typecode);
+        } else {
+            return PyArray_CanCastSafely( input_typecode, typecode);
+        }
+    }
+
+    /* Dims check
+     * Tests if the input array has compatible dimensions with the required type.
+     * If 'strict', we require len(array.shape) == required dims.
+     * Otherwise, we will allow upcasting. Downcasting (cube->matrix->vector) is not permitted.
+     * examples:
+     * If expecting a matrix, and receive shape (5), take it as a matrix of size (5,1)
+     * If expecting a cube, and receive shape (5), take it as a cube of size (5,1,1)
+     * If expecting a cube, and receive shape (2,3), take it as a cube of size (2,3,1)
+     */
+    template<class T>
+    int arma_numpy_dimscheck( PyObject* input, bool strict=false){
+        constexpr int dims = arma_info<T>::dims;
+
+        PyArrayObject* array = (PyArrayObject*)input;
+        int input_dims = array_numdims(array);
+
+        if( strict ){
+            return input_dims == dims;
+        } else {
+            return input_dims <= dims;
+        }
+    }
+
+    /* Order check
+     * Tests if the input array is Fortran ordered. Additionally checks that the input array:
+     * - owns its own data
+     * - is aligned in memory
+     * - is writeable
+     */
+    int arma_numpy_ordercheck(PyObject* input){
+        PyArrayObject* array = (PyArrayObject*)input;
+        return PyArray_CHKFLAGS(array,(NPY_ARRAY_F_CONTIGUOUS|NPY_ARRAY_OWNDATA|NPY_ARRAY_ALIGNED|NPY_ARRAY_WRITEABLE)); 
+    }
+
+    /* Typecheck to ensure the input array has acceptable type and shape.
      * If a numpy array is not contiguous or is not column-ordered, a new array will be constructed for the conversion.
      * Numpy arrays may be cast to a different type, though only if it can be done so safely.
-     * Setting strict=true prevents casting, and imposes additional restrictions on internal memory layout.
      */
     template<class T>
     int arma_numpy_typecheck(PyObject* input, bool strict=false){
-        constexpr int typecode = arma_info<T>::typecode;
-        constexpr int dims = arma_info<T>::dims;
-
-        // Check input type is a numpy array
-        if( !is_array(input) ) return false;
-
-        // Convert to PyArrayObject for further testing
-        PyArrayObject* array = (PyArrayObject*)input;
-        int input_typecode = array_type(array);
-        int input_dims = array_numdims(array);
-
-        // Check numpy array has correct type, or it can be cast to it without losing information
-        if( !PyArray_CanCastSafely( input_typecode, typecode) ) return false;
-
-        // Check numpy array has correct ndims
-        if( input_dims != dims ) return false;
-
-        // Apply stricter measures
-        // * no type casting
-        // * array must be column-ordered contiguous (e.g. Fortran style)
-        // * array must own its own data (e.g. not a view)
         if( strict ){
-            // Require equivalent typecodes (e.g. okay if NPY_INT and NPY_LONGINT are the same)
-            if( !PyArray_EquivTypenums( input_typecode, typecode) ) return false;
-           // Must own data
-            if( !PyArray_CHKFLAGS(array,(NPY_ARRAY_F_CONTIGUOUS|NPY_ARRAY_OWNDATA|NPY_ARRAY_ALIGNED|NPY_ARRAY_WRITEABLE))) return false; 
+            return (is_array(input) && arma_numpy_ordercheck(input) && arma_numpy_castcheck<T>(input,true) && arma_numpy_dimscheck<T>(input,true));
+        } else {
+            return (is_array(input) && arma_numpy_castcheck<T>(input) && arma_numpy_dimscheck<T>(input));
         }
-
-        return true;
     }
     
     /* Converts numpy array to arma container.
@@ -164,12 +211,13 @@
         #endif 
         // Get dimensionality of numpy array and pointer to its raw data
         npy_intp* dims = array_dimensions(array);
+        int ndims = array_numdims(array);
         element_t* data = reinterpret_cast<element_t*>(array_data(array));
         // Build arma object directly from Numpy
         #ifdef ARMA_NUMPY_DEBUG
         printf("ArmaNumpyDebug: Building Arma object from Numpy data ptr: %p\n",data);
         #endif 
-        T t = arma_from_ptr<T>(data,dims);
+        T t = arma_from_ptr<T>(data,dims,ndims);
         #ifdef ARMA_NUMPY_DEBUG
         printf("ArmaNumpyDebug: Built Arma object with memptr: %p\n",t.memptr());
         #endif 
@@ -204,30 +252,33 @@
 // Create macro for arma container typemaps
 %define %gen_typemaps(T,prec)
 
+    // Typecheck
+    %typemap(typecheck, precedence=prec, fragment="arma_numpy") T, const T, T*, const T*, T&, const T& {
+        $1 = arma_numpy_typecheck<T>($input);
+    }
+
     // In by value
     // Always copies and quietly converts if it needs to.
     %typemap(in,  fragment="arma_numpy") T, const T  {
-        // Perform extra typecheck to avoid any attempted casting at runtime
-        bool typecheck = arma_numpy_typecheck<T>($input,false);
-        if( !typecheck ){
-            PyErr_Format( PyExc_TypeError,"ArmaNumpyError: Tried to cast to %s in function %s", #T, "$symname");
+        try{
+            $1 = numpy_to_arma<T>($input);
+        } catch (const ArmaNumpyException& e){
+            PyErr_SetString( PyExc_TypeError, e.what());
             return NULL;
         }
-        $1 = numpy_to_arma<T>($input);
     }
 
     // In by reference
     // Only copies if the type required by arma doesn't match the type provided by numpy, or if the input isn't Fortran ordered.
     // See argout for handling in case copying was performed.
     %typemap(in,  fragment="arma_numpy") T& (T temp), T* (T temp), const T& (T temp), const T* (T temp) {
-        // Perform extra typecheck to avoid any dodgy casting at runtime
-        bool typecheck = arma_numpy_typecheck<T>($input,false);
-        if( !typecheck ){
-            PyErr_Format( PyExc_TypeError,"ArmaNumpyError: Tried to cast to %s in function %s", #T, "$symname");
+        try{
+            temp = numpy_to_arma<T>($input); // copies data if strict typechecking not passed
+            $1 = &temp;
+        } catch (const ArmaNumpyException& e){
+            PyErr_SetString( PyExc_TypeError, e.what());
             return NULL;
         }
-        temp = numpy_to_arma<T>($input);
-        $1 = &temp;
     }
 
     // Argout by reference:
@@ -260,22 +311,7 @@
     %typemap(out, optimal="1", fragment="arma_numpy") T {
         $result = arma_to_numpy<T>($1);
     }
-    
-    // Typecheck by value
-    %typemap(typecheck, precedence=prec, fragment="arma_numpy") T, const T {
-        $1 = arma_numpy_typecheck<T>($input,/*strict*/false);
-    }
-    
-    // Typecheck by reference
-    %typemap(typecheck, precedence=prec, fragment="arma_numpy") T*, const T*, T&, const T& {
-        // non-strict typechecking for now, a conversion error may be caught later
-        $1 = arma_numpy_typecheck<T>($input,/*strict*/ false);
-    }
 
-    // Typecheck by const reference
-    %typemap(typecheck, precedence=prec, fragment="arma_numpy") const T*, const T& {
-        $1 = arma_numpy_typecheck<T>($input,/*strict*/ false);
-    }
 %enddef
 
 // Some preprocessor magic...
