@@ -9,10 +9,6 @@
 #include <armadillo>
 #include <stdexcept>
 #include <numpy/arrayobject.h>
-#ifdef ARMA_NUMPY_DEBUG
-#warning "arma_numpy debug mode activated"
-#include <cstdio>
-#endif
 %}
 
 %include "numpy.i"
@@ -72,31 +68,30 @@
         using std::runtime_error::runtime_error;
     };
 
-
     // build arma object given memptr and dims
     template<class T, typename std::enable_if<arma_info<T>::dims==1,bool>::type = true>
-    T arma_from_ptr( typename arma_info<T>::element_t* data, npy_intp* dims, int ndims) {
+    T* arma_from_ptr( typename arma_info<T>::element_t* data, npy_intp* dims, int ndims) {
         switch(ndims){
-            case 1: return T(data,dims[0],false);
+            case 1: return new T(data,dims[0],false);
             default: throw ArmaNumpyException("Can't cast Numpy array of len(shape) > 1 to an Armadillo vector");
         }
     }
 
     template<class T, typename std::enable_if<arma_info<T>::dims==2,bool>::type = true>
-    T arma_from_ptr( typename arma_info<T>::element_t* data, npy_intp* dims, int ndims) {
+    T* arma_from_ptr( typename arma_info<T>::element_t* data, npy_intp* dims, int ndims) {
         switch(ndims){
-            case 1: return T(data,dims[0],1,false);
-            case 2: return T(data,dims[0],dims[1],false);
+            case 1: return new T(data,dims[0],1,false);
+            case 2: return new T(data,dims[0],dims[1],false);
             default: throw ArmaNumpyException("Can't cast Numpy array of len(shape) > 2 to an Armadillo matrix");
         }
     }
 
     template<class T, typename std::enable_if<arma_info<T>::dims==3,bool>::type = true>
-    T arma_from_ptr( typename arma_info<T>::element_t* data, npy_intp* dims, int ndims) {
+    T* arma_from_ptr( typename arma_info<T>::element_t* data, npy_intp* dims, int ndims) {
         switch(ndims){
-            case 1: return T(data,dims[0],1,1,false);
-            case 2: return T(data,dims[0],dims[1],1,false);
-            case 3: return T(data,dims[0],dims[1],dims[2],false);
+            case 1: return new T(data,dims[0],1,1,false);
+            case 2: return new T(data,dims[0],dims[1],1,false);
+            case 3: return new T(data,dims[0],dims[1],dims[2],false);
             default: throw ArmaNumpyException("Can't cast Numpy array of len(shape) > 3 to an Armadillo cube");
         }
     }
@@ -117,10 +112,45 @@
         return std::array<npy_intp,arma_info<T>::dims>{ (npy_intp)t.n_rows, (npy_intp)t.n_cols, (npy_intp)t.n_slices};
     }
 }
+ 
+// Define Python wrapper objects for Arma objects
+
+%fragment("arma_wrapper","header"){
+
+    // Define basic Python object that holds an Arma object
+    template<class T>
+    struct PyArmaObject {
+        PyObject_HEAD
+        T* data;
+    };
+
+    // Define dealloc method
+    template<class T>
+    void PyArmaObject_dealloc( PyObject* self){
+        T* data = ((PyArmaObject<T>*)self)->data;
+        delete data;
+        self->ob_type->tp_free(self);
+    }
+
+    // Define type object
+    template<class T>
+    struct PyArmaTypeObject {
+        static PyTypeObject value; 
+    };
+
+    template<class T>
+    PyTypeObject PyArmaTypeObject<T>::value = {
+        PyVarObject_HEAD_INIT(NULL,0)
+        .tp_name = "PyArma",
+        .tp_basicsize = sizeof(PyArmaObject<T>),
+        .tp_dealloc = PyArmaObject_dealloc<T>,
+        .tp_doc = "arma_numpy wrapper for Armadillo objects",
+    };
+}
 
 // Define methods for converting between np.array and arma
 
-%fragment("arma_numpy", "header", fragment="NumPy_Fragments", fragment="arma_numpy_utilities"){
+%fragment("arma_numpy", "header", fragment="NumPy_Fragments", fragment="arma_numpy_utilities", fragment="arma_wrapper"){
 
     /* Cast check
      * Tests if the input type can be safely cast to the required type.
@@ -187,16 +217,11 @@
         }
     }
     
-    /* Converts numpy array to arma container.
-     * If the parameter 'copy' is set to true (default), the new container will copy data from the numpy array.
-     * As the numpy array may itself be copied to a fortran-contiguous version of itself beforehand, this can
-     * be slow for large arrays.
-     * If the parameter 'copy' is set to false, the new container will make use of the same memory as the numpy array.
-     * Any changes to the arma container in C++ will be reflected in Python. In addition, the numpy array passed in may
-     * be converted to a new dtype, and may be made copied to make a Fortran contiguous (column-ordered) version.
+    /* Converts numpy array to Arma container.
+     * Calls 'new' internally. Any Arma objects created this way must be deleted. 
      */
     template<class T>
-    T numpy_to_arma(PyObject* input){
+    T* numpy_to_arma(PyObject* input){
         // Determine internal type of Vec and corresponding numpy typecode
         using element_t = typename arma_info<T>::element_t;
         static constexpr int typecode = arma_info<T>::typecode;
@@ -204,41 +229,68 @@
         // If we need to convert it to a Fortran-contiguous copy or change the type, do so.
         // Note that this will not happen if an object passes strict typechecking.
         PyArrayObject* array = NULL;
-        int is_new_object;
-        array = obj_to_array_fortran_allow_conversion( input, typecode, &is_new_object);
-        #ifdef ARMA_NUMPY_DEBUG
-        if(is_new_object) printf("ArmaNumpyDebug: Converted new F-contiguous Numpy array.\n");
-        #endif 
+        int is_new_obj;
+        array = obj_to_array_fortran_allow_conversion( input, typecode, &is_new_obj);
         // Get dimensionality of numpy array and pointer to its raw data
         npy_intp* dims = array_dimensions(array);
         int ndims = array_numdims(array);
         element_t* data = reinterpret_cast<element_t*>(array_data(array));
         // Build arma object directly from Numpy
-        #ifdef ARMA_NUMPY_DEBUG
-        printf("ArmaNumpyDebug: Building Arma object from Numpy data ptr: %p\n",data);
-        #endif 
-        T t = arma_from_ptr<T>(data,dims,ndims);
-        #ifdef ARMA_NUMPY_DEBUG
-        printf("ArmaNumpyDebug: Built Arma object with memptr: %p\n",t.memptr());
-        #endif 
-        return t;
+        return arma_from_ptr<T>(data,dims,ndims);
     }
 
     /* Converts arma container to numpy array
-     * Returns by value, and always creates a new numpy array.
+     * 'input' is the original array input by numpy.
+     * Leaving this NULL results in a new Numpy array being created, and elements being copied over.
+     * Passing in a PyArrayObject results in it being overwritten.
      */
     template<class T>
-    PyObject* arma_to_numpy( const T& t ){
+    PyObject* arma_to_numpy( T* t, PyObject* input = NULL){
         // Get element type and corresponding type code
         using element_t = typename arma_info<T>::element_t;
         static constexpr int typecode = arma_info<T>::typecode;
         static constexpr int dims = arma_info<T>::dims;
         // Get shape of arma container
-        std::array<npy_intp,dims> shape = arma_shape(t);
-        // Create new empty array, copy elements over
-        PyObject* array = PyArray_EMPTY( dims, shape.data(), typecode, /*'fortran' ordering*/ true);
-        std::copy( t.begin(), t.end(), reinterpret_cast<element_t*>(array_data(array)));
-        return array;
+        std::array<npy_intp,dims> shape = arma_shape(*t);
+        // Set base object to Arma array, or copy elements over.
+        if(input){
+            // TODO
+            /* This isn't working, resorting to copy for now.
+             * - Should create new numpy array with arma as base
+             * - If input doesn't own its own data, but also move data back using PyArray_MoveInto
+             * The following attempt was made:
+             */
+            //PyArrayObject* array = (PyArrayObject*) input;
+            //// Check to see if Arma array has changed shape.
+            //// If so, delete Arma array and raise exception
+            //for(int ii=0; ii<dims; ++ii){
+            //    if( shape[ii] != array_dimensions(array)[ii] ){
+            //        delete t;
+            //        throw ArmaNumpyException("Arma must not change when passing by reference.");
+            //    }
+            //}
+            //// Create PyArmaObject wrapper
+            //PyArmaObject<T>* wrap = PyObject_New( PyArmaObject<T>, &PyArmaTypeObject<T>::value);
+            //wrap->data = t;
+            //// Set this object as the base of the numpy array
+            //PyArray_BYTES(array) = (char*) wrap->data->memptr();
+            //PyArray_SetBaseObject( array, (PyObject*) wrap);
+            //// Update info to match arma
+            //PyArray_CLEARFLAGS( array, NPY_ARRAY_OWNDATA);
+            //PyArray_ENABLEFLAGS( array, NPY_ARRAY_F_CONTIGUOUS | NPY_ARRAY_ALIGNED | NPY_ARRAY_WRITEABLE);
+            //return input;
+            // TODO
+            PyObject* array = PyArray_EMPTY( dims, shape.data(), typecode, /*'fortran' ordering*/ true);
+            // Copy elements over, return
+            std::copy( t->begin(), t->end(), reinterpret_cast<element_t*>(array_data(array)));
+            return array;
+        } else {
+            // Create new empty array with same shape as Arma object
+            PyObject* array = PyArray_EMPTY( dims, shape.data(), typecode, /*'fortran' ordering*/ true);
+            // Copy elements over, return
+            std::copy( t->begin(), t->end(), reinterpret_cast<element_t*>(array_data(array)));
+            return array;
+        }
     }
 }
 
@@ -259,7 +311,26 @@
 
     // In by value
     // Always copies and quietly converts if it needs to.
-    %typemap(in,  fragment="arma_numpy") T, const T  {
+    %typemap(in,  fragment="arma_numpy") T (T* temp), const T (T* temp) {
+        temp = NULL;
+        try{
+            temp = numpy_to_arma<T>($input);
+            $1 = *temp;
+        } catch (const ArmaNumpyException& e){
+            PyErr_SetString( PyExc_TypeError, e.what());
+            return NULL;
+        }
+    }
+
+    // Clean-up by value
+    %typemap(freearg) T, const T {
+        if(temp$argnum) delete temp$argnum;
+    }
+
+    // In by reference
+    // Only copies if the type required by arma doesn't match the type provided by numpy, or if the input isn't Fortran ordered.
+    // See argout for handling in case copying was performed.
+    %typemap(in,  fragment="arma_numpy") T&, T*, const T&, const T* {
         try{
             $1 = numpy_to_arma<T>($input);
         } catch (const ArmaNumpyException& e){
@@ -268,48 +339,40 @@
         }
     }
 
-    // In by reference
-    // Only copies if the type required by arma doesn't match the type provided by numpy, or if the input isn't Fortran ordered.
-    // See argout for handling in case copying was performed.
-    %typemap(in,  fragment="arma_numpy") T& (T temp), T* (T temp), const T& (T temp), const T* (T temp) {
-        try{
-            temp = numpy_to_arma<T>($input); // copies data if strict typechecking not passed
-            $1 = &temp;
-        } catch (const ArmaNumpyException& e){
-            PyErr_SetString( PyExc_TypeError, e.what());
-            return NULL;
-        }
-    }
-
     // Argout by reference:
-    // If strict typechecking isn't passed, then the input is converted before passing to arma.
-    // To maintain the illusion of pass-by-reference, convert the new arma object back to a numpy object, and copy into the original.
+    // The input may be converted before passing to arma.
+    // To maintain the illusion of pass-by-reference, update input numpy object to reflect any changes.
     %typemap(argout, fragment="arma_numpy") T&, T* {
-        // If strict typechecking isn't passed, then a copy was made when converting to arma.
-        // Move the results back into $input if this is the case.
+        // Check if the creation of an Arma object resulted in a conversion/copy.
+        // - If no copy was made, and we may freely delete the Arma object.
+        //   This shouldn't free the array data, as the Arma object was created by passing a pointer.
+        // - If a copy was made when converting to arma, $input must be updated to reflect any changes made.
         bool strict_typecheck = arma_numpy_typecheck<T>($input,true);
-        if( !strict_typecheck ){
+        bool arma_reallocated = (array_data($input) == (char*) $1->memptr());
+        if(!strict_typecheck || arma_reallocated ){
             // convert arma back to numpy
-            PyObject* np = arma_to_numpy<T>(*$1);
+            PyObject* np = arma_to_numpy<T>($1,$input);
             // move back into original array
             int err = PyArray_MoveInto((PyArrayObject*)$input,(PyArrayObject*)np);
             if(err==-1){
                 PyErr_Format( PyExc_TypeError, "ArmaNumpyError: Conversion error when passing by reference in function %s", "$symname");
                 return NULL;
             }
+        } else {
+            delete $1;
         }
     }
 
     // Argout by const reference:
-    // Do nothing! If strict typechecking isn't passed, then the input is converted before passing to arma.
-    // However, something passed by const ref/ptr can't be modified by the function, so there's no need to convert back again.
+    // Something passed by const ref/ptr can't be modified by the function, so there's no need to convert back again.
     %typemap(argout, fragment="arma_numpy") const T&, const T* {
         // Do nothing!
     }
 
     // Out by value (out by reference/const reference not available at this time)
     %typemap(out, optimal="1", fragment="arma_numpy") T {
-        $result = arma_to_numpy<T>($1);
+        T result = $1;
+        $result = arma_to_numpy<T>(&result);
     }
 
 %enddef
