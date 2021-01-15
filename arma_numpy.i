@@ -240,57 +240,36 @@
     }
 
     /* Converts arma container to numpy array
-     * 'input' is the original array input by numpy.
-     * Leaving this NULL results in a new Numpy array being created, and elements being copied over.
-     * Passing in a PyArrayObject results in it being overwritten.
+     * If 'copy', new memory is allocated and elements are copied over. This is necessary when returning by value.
+     * Otherwise, a new numpy array is created that uses the arma array as its base.
+     * TODO when passing by reference, investigate if any unwanted copying is going on.
      */
     template<class T>
-    PyObject* arma_to_numpy( T* t, PyObject* input = NULL){
+    PyObject* arma_to_numpy( T* t, bool copy=true){
         // Get element type and corresponding type code
         using element_t = typename arma_info<T>::element_t;
         static constexpr int typecode = arma_info<T>::typecode;
         static constexpr int dims = arma_info<T>::dims;
+        PyObject* array;
         // Get shape of arma container
         std::array<npy_intp,dims> shape = arma_shape(*t);
         // Set base object to Arma array, or copy elements over.
-        if(input){
-            // TODO
-            /* This isn't working, resorting to copy for now.
-             * - Should create new numpy array with arma as base
-             * - If input doesn't own its own data, but also move data back using PyArray_MoveInto
-             * The following attempt was made:
-             */
-            //PyArrayObject* array = (PyArrayObject*) input;
-            //// Check to see if Arma array has changed shape.
-            //// If so, delete Arma array and raise exception
-            //for(int ii=0; ii<dims; ++ii){
-            //    if( shape[ii] != array_dimensions(array)[ii] ){
-            //        delete t;
-            //        throw ArmaNumpyException("Arma must not change when passing by reference.");
-            //    }
-            //}
-            //// Create PyArmaObject wrapper
-            //PyArmaObject<T>* wrap = PyObject_New( PyArmaObject<T>, &PyArmaTypeObject<T>::value);
-            //wrap->data = t;
-            //// Set this object as the base of the numpy array
-            //PyArray_BYTES(array) = (char*) wrap->data->memptr();
-            //PyArray_SetBaseObject( array, (PyObject*) wrap);
-            //// Update info to match arma
-            //PyArray_CLEARFLAGS( array, NPY_ARRAY_OWNDATA);
-            //PyArray_ENABLEFLAGS( array, NPY_ARRAY_F_CONTIGUOUS | NPY_ARRAY_ALIGNED | NPY_ARRAY_WRITEABLE);
-            //return input;
-            // TODO
-            PyObject* array = PyArray_EMPTY( dims, shape.data(), typecode, /*'fortran' ordering*/ true);
-            // Copy elements over, return
-            std::copy( t->begin(), t->end(), reinterpret_cast<element_t*>(array_data(array)));
-            return array;
-        } else {
+        if(copy){
             // Create new empty array with same shape as Arma object
-            PyObject* array = PyArray_EMPTY( dims, shape.data(), typecode, /*'fortran' ordering*/ true);
+            array = PyArray_EMPTY( dims, shape.data(), typecode, /*'fortran' ordering*/ true);
             // Copy elements over, return
             std::copy( t->begin(), t->end(), reinterpret_cast<element_t*>(array_data(array)));
-            return array;
+        } else {
+            // Create PyArmaObject wrapper
+            PyArmaObject<T>* wrap = PyObject_New( PyArmaObject<T>, &PyArmaTypeObject<T>::value);
+            wrap->data = t;
+            // Create new PyArray using Arma data
+            array = PyArray_New(&PyArray_Type,dims,shape.data(),typecode,NULL,wrap->data->memptr(),0,NPY_ARRAY_F_CONTIGUOUS,NULL);
+            // Set this wrapped object as the base of the numpy array
+            //Py_INCREF((PyObject*)wrap); // is this needed? Not sure if this will cause a memory leak or avoid one...
+            PyArray_SetBaseObject( (PyArrayObject*) array, (PyObject*) wrap);
         }
+        return array;
     }
 }
 
@@ -324,7 +303,7 @@
 
     // Clean-up by value
     %typemap(freearg) T, const T {
-        if(temp$argnum) delete temp$argnum;
+        if(temp$argnum != NULL) delete temp$argnum;
     }
 
     // In by reference
@@ -351,7 +330,7 @@
         bool arma_reallocated = (array_data($input) == (char*) $1->memptr());
         if(!strict_typecheck || arma_reallocated ){
             // convert arma back to numpy
-            PyObject* np = arma_to_numpy<T>($1,$input);
+            PyObject* np = arma_to_numpy<T>($1,false);
             // move back into original array
             int err = PyArray_MoveInto((PyArrayObject*)$input,(PyArrayObject*)np);
             if(err==-1){
