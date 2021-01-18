@@ -2,6 +2,7 @@
 // A collection of simple C++ functions to test arma_numpy.i
 
 #include <armadillo>
+#include <string>
 
 // 1D
 
@@ -17,12 +18,10 @@ double sum_vec_by_ptr( const arma::vec* v);
 void set_to_zero_by_ref( arma::vec& v);
 void set_to_zero_by_ptr( arma::vec* v);
 
-void print_memptr_by_val( arma::vec v);
-void print_memptr_by_ref( arma::vec& v);
-void print_memptr_by_ptr( arma::vec* v);
-void print_memptr_by_const_ref( const arma::vec& v);
-void print_memptr_by_const_ptr( const arma::vec* v);
+std::size_t get_memptr( arma::vec* v);
+std::size_t get_memptr_const( const arma::vec* v);
 
+arma::vec& get_static_vec();
 
 // 2D
 
@@ -34,11 +33,8 @@ void set_to_zero_by_ptr( arma::mat* m);
 double sum_mat_by_const_ref( const arma::mat& m);
 double sum_mat_by_const_ptr( const arma::mat* m);
 
-void print_memptr_by_val( arma::mat m);
-void print_memptr_by_ref( arma::mat& m);
-void print_memptr_by_ptr( arma::mat* m);
-void print_memptr_by_const_ref( const arma::mat& m);
-void print_memptr_by_const_ptr( const arma::mat* m);
+std::size_t get_memptr( arma::mat* m);
+std::size_t get_memptr_const( const arma::mat* m);
 
 // 3D
 
@@ -46,9 +42,3 @@ double sum_cube( arma::cube c);
 arma::sword sum_cube( arma::icube c);
 arma::cube do_nothing( arma::cube c);
 arma::mat get_second_slice( arma::cube c);
-
-void print_memptr_by_val( arma::cube c);
-void print_memptr_by_ref( arma::cube& c);
-void print_memptr_by_ptr( arma::cube* c);
-void print_memptr_by_const_ref( const arma::cube& c);
-void print_memptr_by_const_ptr( const arma::cube* c);

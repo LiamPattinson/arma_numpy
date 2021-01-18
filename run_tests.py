@@ -266,3 +266,40 @@ class TestClass:
             transpose_mat(self.i64_3)
         with pytest.raises(TypeError):
             sum_vec(self.ff64_2)
+
+    def test_by_ref_no_copy(self):
+        """
+        Tests whether unnecessary copies are being made.
+        If data is being copied rather than being worked on in-place, get_memptr will return different values each time.
+        """
+        self.init()
+        # Test with something that really shouldn't be copied.
+        ptr = get_memptr(self.ff64_1)
+        assert ptr == get_memptr(self.ff64_1)
+        # Test with things I really hope won't be copied. (C-contiguous vector [should be same], F-contiguous matrix)
+        ptr1 = get_memptr(self.f64_1)
+        ptr2 = get_memptr(self.ff64_2)
+        assert ptr1 == get_memptr(self.f64_1)
+        assert ptr2 == get_memptr(self.ff64_2)
+        # Test with things that should be copied. (C-contiguous matrix)
+        ptr = get_memptr(self.f64_2)
+        assert ptr != get_memptr(self.f64_2)
+
+    def test_by_ref_non_contiguous(self):
+        """
+        Tests if non-contiguous arrays can be successfully passed by reference.
+        """
+        self.init()
+        corners = self.ff64_2[::2,::2]
+        assert not corners.flags['OWNDATA']
+        set_to_zero_by_ref(corners)
+        assert np.all(self.ff64_2 == np.array([[0,1,0],[3,4,5],[0,7,0]]))
+
+    def test_pyarma_wrapper(self):
+        """
+        Return by reference should give an array that does not own its own data.
+        """
+        v = get_static_vec()
+        assert np.all(v==np.zeros(3))
+        assert v.flags['F_CONTIGUOUS']
+        assert not v.flags['OWNDATA']

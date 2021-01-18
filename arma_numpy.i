@@ -98,18 +98,18 @@
 
     // get shape of arma object
     template<class T, typename std::enable_if<arma_info<T>::dims==1,bool>::type = true>
-    auto arma_shape( const T& t) -> typename std::array<npy_intp,arma_info<T>::dims> {
-        return std::array<npy_intp,arma_info<T>::dims>{ (npy_intp)t.n_elem};
+    auto arma_shape( const T* t) -> typename std::array<npy_intp,arma_info<T>::dims> {
+        return std::array<npy_intp,arma_info<T>::dims>{ (npy_intp)t->n_elem};
     }
 
     template<class T, typename std::enable_if<arma_info<T>::dims==2,bool>::type = true>
-    auto arma_shape( const T& t) -> typename std::array<npy_intp,arma_info<T>::dims> {
-        return std::array<npy_intp,arma_info<T>::dims>{ (npy_intp)t.n_rows, (npy_intp)t.n_cols};
+    auto arma_shape( const T* t) -> typename std::array<npy_intp,arma_info<T>::dims> {
+        return std::array<npy_intp,arma_info<T>::dims>{ (npy_intp)t->n_rows, (npy_intp)t->n_cols};
     }
 
     template<class T, typename std::enable_if<arma_info<T>::dims==3,bool>::type = true>
-    auto arma_shape( const T& t) -> typename std::array<npy_intp,arma_info<T>::dims> {
-        return std::array<npy_intp,arma_info<T>::dims>{ (npy_intp)t.n_rows, (npy_intp)t.n_cols, (npy_intp)t.n_slices};
+    auto arma_shape( const T* t) -> typename std::array<npy_intp,arma_info<T>::dims> {
+        return std::array<npy_intp,arma_info<T>::dims>{ (npy_intp)t->n_rows, (npy_intp)t->n_cols, (npy_intp)t->n_slices};
     }
 }
  
@@ -126,10 +126,9 @@
 
     // Define dealloc method
     template<class T>
-    void PyArmaObject_dealloc( PyObject* self){
-        T* data = ((PyArmaObject<T>*)self)->data;
-        delete data;
-        self->ob_type->tp_free(self);
+    static void PyArmaObject_dealloc( PyArmaObject<T>* self){
+        delete self->data;
+        Py_TYPE(self)->tp_free((PyObject*)self);
     }
 
     // Define type object
@@ -140,11 +139,14 @@
 
     template<class T>
     PyTypeObject PyArmaTypeObject<T>::value = {
-        PyVarObject_HEAD_INIT(NULL,0)
-        .tp_name = "PyArma",
+        PyObject_HEAD_INIT(NULL)
+        .tp_name = "PyArmaObject",
         .tp_basicsize = sizeof(PyArmaObject<T>),
-        .tp_dealloc = PyArmaObject_dealloc<T>,
+        .tp_dealloc = (destructor) PyArmaObject_dealloc<T>,
+        .tp_flags = Py_TPFLAGS_DEFAULT,
         .tp_doc = "arma_numpy wrapper for Armadillo objects",
+        .tp_alloc = PyType_GenericAlloc,
+        .tp_new = PyType_GenericNew,
     };
 }
 
@@ -242,7 +244,6 @@
     /* Converts arma container to numpy array
      * If 'copy', new memory is allocated and elements are copied over. This is necessary when returning by value.
      * Otherwise, a new numpy array is created that uses the arma array as its base.
-     * TODO when passing by reference, investigate if any unwanted copying is going on.
      */
     template<class T>
     PyObject* arma_to_numpy( T* t, bool copy=true){
@@ -252,7 +253,7 @@
         static constexpr int dims = arma_info<T>::dims;
         PyObject* array;
         // Get shape of arma container
-        std::array<npy_intp,dims> shape = arma_shape(*t);
+        std::array<npy_intp,dims> shape = arma_shape(t);
         // Set base object to Arma array, or copy elements over.
         if(copy){
             // Create new empty array with same shape as Arma object
@@ -266,12 +267,31 @@
             // Create new PyArray using Arma data
             array = PyArray_New(&PyArray_Type,dims,shape.data(),typecode,NULL,wrap->data->memptr(),0,NPY_ARRAY_F_CONTIGUOUS,NULL);
             // Set this wrapped object as the base of the numpy array
-            //Py_INCREF((PyObject*)wrap); // is this needed? Not sure if this will cause a memory leak or avoid one...
             PyArray_SetBaseObject( (PyArrayObject*) array, (PyObject*) wrap);
         }
         return array;
     }
 }
+
+// Finalise arma wrapper types
+
+%init %{
+
+#define FINALISE_ARMA_WRAPPER(_T)\
+    PyType_Ready(&PyArmaTypeObject<_T<int>>::value);\
+    PyType_Ready(&PyArmaTypeObject<_T<unsigned>>::value);\
+    PyType_Ready(&PyArmaTypeObject<_T<long long>>::value);\
+    PyType_Ready(&PyArmaTypeObject<_T<unsigned long long>>::value);\
+    PyType_Ready(&PyArmaTypeObject<_T<float>>::value);\
+    PyType_Ready(&PyArmaTypeObject<_T<double>>::value);\
+    PyType_Ready(&PyArmaTypeObject<_T<std::complex<float>>>::value);\
+    PyType_Ready(&PyArmaTypeObject<_T<std::complex<double>>>::value);
+
+    FINALISE_ARMA_WRAPPER(arma::Col)
+    FINALISE_ARMA_WRAPPER(arma::Row)
+    FINALISE_ARMA_WRAPPER(arma::Mat)
+    FINALISE_ARMA_WRAPPER(arma::Cube)
+%}
 
 // Create typemaps for armadillo typedefs
 // (assumes ARMA_64BIT_WORD)
@@ -345,13 +365,24 @@
     // Argout by const reference:
     // Something passed by const ref/ptr can't be modified by the function, so there's no need to convert back again.
     %typemap(argout, fragment="arma_numpy") const T&, const T* {
-        // Do nothing!
+        delete $1;
     }
 
-    // Out by value (out by reference/const reference not available at this time)
+    // Out by value
     %typemap(out, optimal="1", fragment="arma_numpy") T {
         T result = $1;
         $result = arma_to_numpy<T>(&result);
+    }
+
+    // Out by reference
+    %typemap(out, fragment="arma_numpy") T*, T& {
+        // Returns Numpy object with an Arma object as its base.
+        // The dealloc method of the Arma wrapper calls 'delete', so it can only take Arma objects created by 'new'.
+        // Therefore must create a new Arma object using the same memptr (this shouldn't involve any copying, besides nrows, ncols etc)
+        static constexpr int dims = arma_info<T>::dims;
+        std::array<npy_intp,dims> shape = arma_shape<T>($1);
+        T* new_arma = arma_from_ptr<T>( (typename arma_info<T>::element_t*)($1)->memptr(), shape.data(), dims);
+        $result = arma_to_numpy<T>(new_arma,false);
     }
 
 %enddef

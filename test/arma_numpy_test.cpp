@@ -41,24 +41,17 @@ void set_to_zero_by_ptr( arma::vec* v){
     v->zeros();
 }
 
-void print_memptr_by_val( arma::vec v){
-    printf("Arma vec has memptr: %p\n",v.memptr());
+std::size_t get_memptr( arma::vec* v){
+    return (std::size_t)v->memptr();
 }
 
-void print_memptr_by_ref( arma::vec& v){
-    printf("Arma vec has memptr: %p\n",v.memptr());
+std::size_t get_memptr_const( const arma::vec* v){
+    return (std::size_t)v->memptr();
 }
 
-void print_memptr_by_ptr( arma::vec* v){
-    printf("Arma vec has memptr: %p\n",v->memptr());
-}
-
-void print_memptr_by_const_ref( const arma::vec& v){
-    printf("Arma vec has memptr: %p\n",v.memptr());
-}
-
-void print_memptr_by_const_ptr( const arma::vec* v){
-    printf("Arma vec has memptr: %p\n",v->memptr());
+arma::vec& get_static_vec(){
+    static arma::vec v = arma::vec(3,arma::fill::zeros);
+    return v;
 }
 
 double sum_mat( arma::mat m){
@@ -89,29 +82,18 @@ double sum_mat_by_const_ptr( const arma::mat* m){
     return arma::accu(*m);    
 }
 
-void print_memptr_by_val( arma::mat m){
-    printf("Arma mat has memptr: %p\n",m.memptr());
+std::size_t get_memptr(arma::mat* m){
+    return (std::size_t)m->memptr();
 }
 
-void print_memptr_by_ref( arma::mat& m){
-    printf("Arma mat has memptr: %p\n",m.memptr());
-}
-
-void print_memptr_by_ptr( arma::mat* m){
-    printf("Arma mat has memptr: %p\n",m->memptr());
-}
-
-void print_memptr_by_const_ref( const arma::mat& m){
-    printf("Arma mat has memptr: %p\n",m.memptr());
-}
-
-void print_memptr_by_const_ptr( const arma::mat* m){
-    printf("Arma mat has memptr: %p\n",m->memptr());
+std::size_t get_memptr_const(const arma::mat* m){
+    return (std::size_t)m->memptr();
 }
 
 double sum_cube( arma::cube c){
     return arma::accu(c);    
 }
+
 arma::sword sum_cube( arma::icube c){
     return arma::accu(c);
 }
@@ -122,24 +104,4 @@ arma::cube do_nothing( arma::cube c){
 
 arma::mat get_second_slice( arma::cube c){
     return c.slice(1);
-}
-
-void print_memptr_by_val( arma::cube c){
-    printf("Arma cube has memptr: %p\n",c.memptr());
-}
-
-void print_memptr_by_ref( arma::cube& c){
-    printf("Arma cube has memptr: %p\n",c.memptr());
-}
-
-void print_memptr_by_ptr( arma::cube* c){
-    printf("Arma cube has memptr: %p\n",c->memptr());
-}
-
-void print_memptr_by_const_ref( const arma::cube& c){
-    printf("Arma cube has memptr: %p\n",c.memptr());
-}
-
-void print_memptr_by_const_ptr( const arma::cube* c){
-    printf("Arma cube has memptr: %p\n",c->memptr());
 }

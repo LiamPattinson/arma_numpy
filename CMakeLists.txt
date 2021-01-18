@@ -18,7 +18,7 @@ include(${SWIG_USE_FILE})
 
 # Set compile options
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -Wall -Wextra -fPIC")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -Wall -Wextra -fPIC -g")
 #set(CMAKE_SWIG_FLAGS "-python -py3 -c++ -cppext cpp -Wall -Wextra") # Apparently not needed!
 
 include_directories("${CMAKE_SOURCE_DIR}/")
