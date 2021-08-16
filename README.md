@@ -107,8 +107,6 @@ It will be stored in memory as:
 A_arma_data -> { 0, 3, 6, 1, 4, 7, 2, 5, 8 }
 ```
 
-(Horrifying, I know.)
-
 As a result, `arma_numpy` must convert Numpy arrays to column-major order before
 passing them to Armadillo, and this requires the creation of temporary copies.
 To maintain the illusion of pass-by-reference, the contents of these copies
